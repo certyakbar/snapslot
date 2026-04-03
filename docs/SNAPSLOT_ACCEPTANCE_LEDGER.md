@@ -38,7 +38,7 @@ This ledger records verification truth against the Constitution. Statuses are PA
 | Existing-booking conflict prevention | UNVERIFIED | Requires proof that overlapping bookings are rejected. |
 | Past booking rejection | UNVERIFIED | Requires proof that bookings in the past are rejected. |
 | Invalid/inactive service rejection | UNVERIFIED | Requires proof that bookings with invalid or inactive services are rejected. |
-| Near-simultaneous / concurrency double-booking protection | UNVERIFIED | Constitution Law 1 requires prevention; needs proof against near-simultaneous requests. |
+| Near-simultaneous / concurrency double-booking protection | PASS | Proven by pushed `origin/main` patch (`a7f6e0c406c4a52f3693109c082a6994dede32cc`) and passing tests (`PASS 9 tests`); protection covers single-process in-memory concurrency. Cross-process / multi-instance concurrency remains unproven. |
 | Shared theme ownership | UNVERIFIED | Requires proof that styling is centralized and shared, not duplicated across pages. |
 | Inline duplicated shared styles | UNVERIFIED | Requires proof that pages do not contain inline copies of shared theme styles. |
 | Fake or unsupported UI | UNVERIFIED | Constitution Law 4 requires this; needs proof that UI never implies unsupported features. |
