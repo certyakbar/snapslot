@@ -135,6 +135,8 @@ export class BookingStore {
     bookings: new Map(),
   };
 
+  private readonly bookingCreationLocks = new Map<string, Promise<void>>();
+
   static async create(): Promise<BookingStore> {
     const store = new BookingStore();
     await store.loadFromDisk();
@@ -451,86 +453,88 @@ export class BookingStore {
   }
 
   async createBooking(input: CreateBookingInput): Promise<BookingDetails> {
-    const business = this.getBusiness(input.businessId);
+    return this.withBusinessBookingCreationLock(input.businessId, async () => {
+      const business = this.getBusiness(input.businessId);
 
-    if (!(input.requestedStart instanceof Date)) {
-      throw new Error("Requested booking time is invalid.");
-    }
+      if (!(input.requestedStart instanceof Date)) {
+        throw new Error("Requested booking time is invalid.");
+      }
 
-    const requestedStartTime = input.requestedStart.getTime();
+      const requestedStartTime = input.requestedStart.getTime();
 
-    if (Number.isNaN(requestedStartTime)) {
-      throw new Error("Requested booking time is invalid.");
-    }
-    if (requestedStartTime <= Date.now()) {
-      throw new Error("Requested booking time must be in the future.");
-    }
+      if (Number.isNaN(requestedStartTime)) {
+        throw new Error("Requested booking time is invalid.");
+      }
+      if (requestedStartTime <= Date.now()) {
+        throw new Error("Requested booking time must be in the future.");
+      }
 
-    const customer = {
-      name: input.customer.name.trim(),
-      phone: input.customer.phone.trim(),
-      email: input.customer.email?.trim() ?? "",
-      notes: input.customer.notes?.trim(),
-    };
+      const customer = {
+        name: input.customer.name.trim(),
+        phone: input.customer.phone.trim(),
+        email: input.customer.email?.trim() ?? "",
+        notes: input.customer.notes?.trim(),
+      };
 
-    if (!customer.name) throw new Error("Customer name is required.");
-    if (!customer.phone) throw new Error("Customer phone is required.");
-    if (!customer.email) throw new Error("Customer email is required.");
-    if (!EMAIL_PATTERN.test(customer.email)) {
-      throw new Error("Customer email is invalid.");
-    }
+      if (!customer.name) throw new Error("Customer name is required.");
+      if (!customer.phone) throw new Error("Customer phone is required.");
+      if (!customer.email) throw new Error("Customer email is required.");
+      if (!EMAIL_PATTERN.test(customer.email)) {
+        throw new Error("Customer email is invalid.");
+      }
 
-    const services = this.resolveRequestedServices(input.businessId, input.serviceIds);
-    const availabilityWindows = this.resolveAvailabilityForInstant(input.businessId, input.requestedStart);
-    if (availabilityWindows.length === 0) {
-      throw new Error("No working availability exists for the selected date.");
-    }
+      const services = this.resolveRequestedServices(input.businessId, input.serviceIds);
+      const availabilityWindows = this.resolveAvailabilityForInstant(input.businessId, input.requestedStart);
+      if (availabilityWindows.length === 0) {
+        throw new Error("No working availability exists for the selected date.");
+      }
 
-    const computation: BookingComputation = buildBookingComputation(input.requestedStart, services);
-    const activeBookings = this.listActiveBookings(input.businessId);
-    const blockedTimes = this.listBlockedTimes(input.businessId);
+      const computation: BookingComputation = buildBookingComputation(input.requestedStart, services);
+      const activeBookings = this.listActiveBookings(input.businessId);
+      const blockedTimes = this.listBlockedTimes(input.businessId);
 
-    const fitsAvailability = availabilityWindows.some((window) =>
-      this.fitsWithinAvailabilityWindow(computation.start, computation.end, window, business.timezone)
-    );
+      const fitsAvailability = availabilityWindows.some((window) =>
+        this.fitsWithinAvailabilityWindow(computation.start, computation.end, window, business.timezone)
+      );
 
-    if (!fitsAvailability) {
-      throw new Error("Booking does not fit within business working hours.");
-    }
+      if (!fitsAvailability) {
+        throw new Error("Booking does not fit within business working hours.");
+      }
 
-    if (conflictsWithExistingTime(computation.start, computation.end, activeBookings, blockedTimes)) {
-      throw new Error("Selected booking time is no longer available.");
-    }
+      if (conflictsWithExistingTime(computation.start, computation.end, activeBookings, blockedTimes)) {
+        throw new Error("Selected booking time is no longer available.");
+      }
 
-    const now = new Date();
-    const booking: BookingRecord = {
-      id: this.createId("bkg"),
-      businessId: input.businessId,
-      customer,
-      serviceIds: [...input.serviceIds],
-      start: computation.start,
-      end: computation.end,
-      totalDurationMinutes: computation.totalDurationMinutes,
-      status: "confirmed",
-      createdAt: now,
-      updatedAt: now,
-    };
+      const now = new Date();
+      const booking: BookingRecord = {
+        id: this.createId("bkg"),
+        businessId: input.businessId,
+        customer,
+        serviceIds: [...input.serviceIds],
+        start: computation.start,
+        end: computation.end,
+        totalDurationMinutes: computation.totalDurationMinutes,
+        status: "confirmed",
+        createdAt: now,
+        updatedAt: now,
+      };
 
-    const nextState = this.cloneState();
-    const current = nextState.bookings.get(input.businessId) ?? [];
-    current.push({
-      ...booking,
-      customer: { ...booking.customer },
-      serviceIds: [...booking.serviceIds],
-      start: new Date(booking.start),
-      end: new Date(booking.end),
-      createdAt: new Date(booking.createdAt),
-      updatedAt: new Date(booking.updatedAt),
+      const nextState = this.cloneState();
+      const current = nextState.bookings.get(input.businessId) ?? [];
+      current.push({
+        ...booking,
+        customer: { ...booking.customer },
+        serviceIds: [...booking.serviceIds],
+        start: new Date(booking.start),
+        end: new Date(booking.end),
+        createdAt: new Date(booking.createdAt),
+        updatedAt: new Date(booking.updatedAt),
+      });
+      nextState.bookings.set(input.businessId, current);
+
+      await this.persistState(nextState);
+      return this.attachServiceSnapshots(booking, services);
     });
-    nextState.bookings.set(input.businessId, current);
-
-    await this.persistState(nextState);
-    return this.attachServiceSnapshots(booking, services);
   }
 
   async cancelBooking(businessId: string, bookingId: string): Promise<BookingDetails> {
@@ -633,6 +637,30 @@ export class BookingStore {
     timeZone: string
   ): boolean {
     return fitsWithinAvailability(start, end, window, timeZone);
+  }
+
+  private async withBusinessBookingCreationLock<T>(
+    businessId: string,
+    action: () => Promise<T>
+  ): Promise<T> {
+    const previousTail = this.bookingCreationLocks.get(businessId) ?? Promise.resolve();
+    let releaseCurrentLock: (() => void) | undefined;
+    const currentLock = new Promise<void>((resolve) => {
+      releaseCurrentLock = resolve;
+    });
+    const lockTail = previousTail.then(() => currentLock);
+    this.bookingCreationLocks.set(businessId, lockTail);
+
+    await previousTail;
+
+    try {
+      return await action();
+    } finally {
+      releaseCurrentLock?.();
+      if (this.bookingCreationLocks.get(businessId) === lockTail) {
+        this.bookingCreationLocks.delete(businessId);
+      }
+    }
   }
 
   private assertValidBlockedTimeRange(start: Date, end: Date): void {

@@ -225,6 +225,132 @@ const tests: TestCase[] = [
     },
   },
   {
+    name: "createBooking prevents near-simultaneous conflicting requests from both succeeding",
+    run: async () => {
+      const store = await BookingStore.create();
+
+      await store.createBusiness({
+        id: "biz_concurrency_conflict",
+        name: "Concurrency Conflict Check",
+        ownerName: "Owner Example",
+        ownerEmail: "concurrency-conflict@example.com",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        timezone: "UTC",
+        bookingPageSlug: "concurrency-conflict-check",
+      });
+
+      const service = await store.createService({
+        businessId: "biz_concurrency_conflict",
+        name: "Cut",
+        durationMinutes: 30,
+        price: 18,
+      });
+
+      await store.updateWeeklyAvailability({
+        businessId: "biz_concurrency_conflict",
+        availability: [{ dayOfWeek: 2, startMinutes: 9 * 60, endMinutes: 12 * 60, active: true }],
+      });
+
+      const firstAttempt = store.createBooking({
+        businessId: "biz_concurrency_conflict",
+        requestedStart: new Date("2099-04-07T09:00:00.000Z"),
+        serviceIds: [service.id],
+        customer: {
+          name: "First Customer",
+          phone: "1001",
+          email: "first-conflict@example.com",
+        },
+      });
+
+      const secondAttempt = store.createBooking({
+        businessId: "biz_concurrency_conflict",
+        requestedStart: new Date("2099-04-07T09:00:00.000Z"),
+        serviceIds: [service.id],
+        customer: {
+          name: "Second Customer",
+          phone: "1002",
+          email: "second-conflict@example.com",
+        },
+      });
+
+      const results = await Promise.allSettled([firstAttempt, secondAttempt]);
+      const succeeded = results.filter(
+        (result): result is PromiseFulfilledResult<Awaited<typeof firstAttempt>> =>
+          result.status === "fulfilled"
+      );
+      const failed = results.filter(
+        (result): result is PromiseRejectedResult => result.status === "rejected"
+      );
+
+      assert.equal(succeeded.length, 1);
+      assert.equal(failed.length, 1);
+      assert.match(String(failed[0].reason), /no longer available/i);
+
+      const bookings = store.listBookings("biz_concurrency_conflict");
+      assert.equal(bookings.length, 1);
+    },
+  },
+  {
+    name: "createBooking still allows near-simultaneous non-conflicting requests",
+    run: async () => {
+      const store = await BookingStore.create();
+
+      await store.createBusiness({
+        id: "biz_concurrency_non_conflict",
+        name: "Concurrency Non-Conflict Check",
+        ownerName: "Owner Example",
+        ownerEmail: "concurrency-non-conflict@example.com",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        timezone: "UTC",
+        bookingPageSlug: "concurrency-non-conflict-check",
+      });
+
+      const service = await store.createService({
+        businessId: "biz_concurrency_non_conflict",
+        name: "Cut",
+        durationMinutes: 30,
+        price: 18,
+      });
+
+      await store.updateWeeklyAvailability({
+        businessId: "biz_concurrency_non_conflict",
+        availability: [{ dayOfWeek: 2, startMinutes: 9 * 60, endMinutes: 12 * 60, active: true }],
+      });
+
+      const firstAttempt = store.createBooking({
+        businessId: "biz_concurrency_non_conflict",
+        requestedStart: new Date("2099-04-07T09:00:00.000Z"),
+        serviceIds: [service.id],
+        customer: {
+          name: "First Customer",
+          phone: "2001",
+          email: "first-non-conflict@example.com",
+        },
+      });
+
+      const secondAttempt = store.createBooking({
+        businessId: "biz_concurrency_non_conflict",
+        requestedStart: new Date("2099-04-07T09:30:00.000Z"),
+        serviceIds: [service.id],
+        customer: {
+          name: "Second Customer",
+          phone: "2002",
+          email: "second-non-conflict@example.com",
+        },
+      });
+
+      const results = await Promise.allSettled([firstAttempt, secondAttempt]);
+      const succeeded = results.filter((result) => result.status === "fulfilled");
+
+      assert.equal(succeeded.length, 2);
+
+      const bookings = store.listBookings("biz_concurrency_non_conflict");
+      assert.equal(bookings.length, 2);
+    },
+  },
+  {
     name: "createBooking rejects past requestedStart values server-side",
     run: async () => {
       const store = await BookingStore.create();
