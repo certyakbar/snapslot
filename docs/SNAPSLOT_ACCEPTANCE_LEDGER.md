@@ -27,17 +27,17 @@ This ledger records verification truth against the Constitution. Statuses are PA
 | Blocked times create/edit/remove | UNVERIFIED | Requires proof of blocked-time lifecycle and persistence. |
 | Public booking link | UNVERIFIED | Requires proof of public booking-page access via business slug. |
 | QR code / booking link isolation | UNVERIFIED | Constitution requires QR/link isolation; needs proof of safe link scoping. |
-| Booking creation | UNVERIFIED | Requires proof of booking request acceptance, validation, and persistence. |
+| Booking creation | PASS | Proven on `origin/main` by booking-engine tests creating bookings via `BookingStore.createBooking` (including accepted future bookings and persisted listing behavior in conflict/concurrency scenarios) in `tests/bookingEngine.test.ts` (`PASS 11 tests`). |
 | Booking visibility | UNVERIFIED | Requires proof that businesses see only their own bookings. |
 | Booking cancellation | UNVERIFIED | Requires proof of cancellation operation and state transitions. |
-| Slot generation | UNVERIFIED | Requires proof of accurate available-slot computation. |
-| Service duration combination | UNVERIFIED | Requires proof that multiple service durations combine correctly in slots. |
-| Buffer handling | UNVERIFIED | Requires proof that service and business buffers are applied correctly. |
-| Timezone handling | UNVERIFIED | Requires proof that timezone conversion is correct and consistent. |
-| Blocked-time exclusion | UNVERIFIED | Requires proof that blocked ranges properly remove unavailable slots. |
-| Existing-booking conflict prevention | UNVERIFIED | Requires proof that overlapping bookings are rejected. |
-| Past booking rejection | UNVERIFIED | Requires proof that bookings in the past are rejected. |
-| Invalid/inactive service rejection | UNVERIFIED | Requires proof that bookings with invalid or inactive services are rejected. |
+| Slot generation | PASS | Proven on `origin/main` by `tests/bookingEngine.test.ts` (`generateAvailableSlots uses the business timezone and supports multiple windows in one day`, `blocked times spanning midnight are considered when generating the next day's slots`, and `generateAvailableSlots combines multiple service durations and buffers`) with `PASS 11 tests`. |
+| Service duration combination | PASS | Proven on `origin/main` by `tests/bookingEngine.test.ts` test `generateAvailableSlots combines multiple service durations and buffers`, asserting combined-service slot start/end outputs (`PASS 11 tests`). |
+| Buffer handling | PASS | Proven on `origin/main` by `tests/bookingEngine.test.ts` test `generateAvailableSlots combines multiple service durations and buffers`, which verifies buffer-included end times for multi-service bookings (`PASS 11 tests`). |
+| Timezone handling | PASS | Proven on `origin/main` by `tests/bookingEngine.test.ts` test `generateAvailableSlots uses the business timezone and supports multiple windows in one day`, asserting timezone-correct UTC slot outputs (`PASS 11 tests`). |
+| Blocked-time exclusion | PASS | Proven on `origin/main` by `tests/bookingEngine.test.ts` test `blocked times spanning midnight are considered when generating the next day's slots`, verifying blocked overlap removal from slot results (`PASS 11 tests`). |
+| Existing-booking conflict prevention | PASS | Proven on `origin/main` by `tests/bookingEngine.test.ts` tests `createBooking rejects a second booking that overlaps an existing confirmed booking` and `conflictsWithExistingTime detects overlapping confirmed bookings and ignores cancelled ones` (`PASS 11 tests`). Boundary remains: near-simultaneous protection is tracked separately as single-process in-memory; cross-process / multi-instance concurrency remains unproven. |
+| Past booking rejection | PASS | Proven on `origin/main` by `tests/bookingEngine.test.ts` test `createBooking rejects past requestedStart values server-side` (`PASS 11 tests`). |
+| Invalid/inactive service rejection | PASS | Proven on `origin/main` by `tests/bookingEngine.test.ts` test `createBooking rejects invalid or inactive services` (`PASS 11 tests`). |
 | Near-simultaneous / concurrency double-booking protection | PASS | Proven by pushed `origin/main` patch (`a7f6e0c406c4a52f3693109c082a6994dede32cc`) and passing tests (`PASS 9 tests`); protection covers single-process in-memory concurrency. Cross-process / multi-instance concurrency remains unproven. |
 | Shared theme ownership | UNVERIFIED | Requires proof that styling is centralized and shared, not duplicated across pages. |
 | Inline duplicated shared styles | UNVERIFIED | Requires proof that pages do not contain inline copies of shared theme styles. |
