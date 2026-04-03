@@ -2,7 +2,7 @@
 
 This ledger records verification truth against the Constitution. Statuses are PASS, FAIL, or UNVERIFIED only. Do not mark PASS without canonical repository evidence. Use UNVERIFIED if proof is missing. Do not treat later-phase or planned work as implemented.
 
-**Note**: This file is an uncommitted local draft. The canonical remote (`origin/main`) does not yet contain this ledger, even though README and Constitution reference it.
+**Note**: This ledger is part of canonical governance and records verification truth against the Constitution. Statuses must remain PASS, FAIL, or UNVERIFIED.
 
 | Area | Status | Proof / Notes |
 | --- | --- | --- |
