@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SnapSlot Booking</title>
+    <style>
+      .page {
+        width: 100%;
+        max-width: 780px;
+        margin: 0 auto;
+        padding: 28px 18px 52px;
+      }
+
+      .hero,
+      .section {
+        border-radius: 20px;
+        padding: 26px;
+        margin-bottom: 16px;
+      }
+
+      .hero h1 {
+        margin: 0 0 8px;
+        font-size: clamp(2.45rem, 4vw, 3.1rem);
+        line-height: 1;
+        max-width: 14ch;
+      }
+
+      .section h2 {
+        margin: 0 0 10px;
+        font-size: 23px;
+        line-height: 1.08;
+      }
+
+      .hero p,
+      .section p,
+      .small-text {
+        margin: 0;
+      }
+
+      .hero p,
+      .section p {
+        max-width: 58ch;
+        line-height: 1.58;
+      }
+
+      .services-grid,
+      .slots-grid {
+        display: grid;
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .service-card {
+        display: flex;
+        gap: 14px;
+        align-items: flex-start;
+      }
+
+      .service-card input {
+        margin-top: 3px;
+      }
+
+      .service-name {
+        font-weight: 700;
+        margin-bottom: 6px;
+        font-size: 15px;
+      }
+
+      .service-meta {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .service-description {
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 8px;
+      }
+
+      .slots-grid {
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      }
+
+      .slot-button {
+        cursor: pointer;
+        text-align: center;
+        font-weight: 700;
+        min-height: 52px;
+      }
+
+      .field-group {
+        display: grid;
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      input,
+      textarea,
+      button {
+        width: 100%;
+      }
+
+      textarea {
+        min-height: 96px;
+        resize: vertical;
+      }
+
+      .summary-list {
+        display: grid;
+        gap: 12px;
+        margin-top: 16px;
+        color: var(--muted);
+      }
+
+      .hero-meta,
+      .review-card {
+        display: grid;
+        gap: 10px;
+      }
+
+      .hero-meta {
+        margin-top: 20px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+
+      .slot-skeleton {
+        height: 46px;
+        border-radius: 12px;
+      }
+
+      @media (max-width: 480px) {
+        .page {
+          padding: 16px 12px 30px;
+        }
+
+        .hero,
+        .section {
+          padding: 20px;
+          border-radius: 18px;
+        }
+      }
+    </style>
+    <link rel="stylesheet" href="/css/snapslot-theme.css" />
+  </head>
+  <body class="snapslot-booking">
+    <main class="page">
+      <section class="hero">
+        <p class="small-text">SnapSlot booking page</p>
+        <h1 id="business-name">Loading SnapSlot booking...</h1>
+        <p id="business-subtitle">Select your service, date, and time.</p>
+        <div class="hero-meta">
+          <div class="meta-card">
+            <strong>Business timezone</strong>
+            <span id="business-timezone">Loading...</span>
+          </div>
+          <div class="meta-card">
+            <strong>Booking flow</strong>
+            <span>Select service, choose a date, choose a time, enter your details, then confirm.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>1. Choose service</h2>
+        <p>Select one or more services. Availability is based on total appointment time.</p>
+        <div id="services" class="services-grid"></div>
+        <div id="service-hint" class="field-hint" aria-live="polite"></div>
+      </section>
+
+      <section class="section">
+        <h2>2. Choose date</h2>
+        <label for="booking-date">Appointment date</label>
+        <input id="booking-date" type="date" aria-describedby="date-hint" />
+        <div id="date-hint" class="field-hint" aria-live="polite"></div>
+        <div id="selection-summary" class="summary-list hidden"></div>
+      </section>
+
+      <section class="section">
+        <h2>3. Choose time</h2>
+        <p>Only real available slots are shown.</p>
+        <!-- Step 7 (Laws 1, 2, 7): neutral async feedback keeps slot state honest while requests are in flight. -->
+        <div id="slots" class="slots-grid" aria-busy="false"></div>
+        <div id="slot-message" class="message" aria-live="polite"></div>
+      </section>
+
+      <section class="section">
+        <h2>4. Your details</h2>
+        <div class="field-group">
+          <div>
+            <label for="customer-name">Full name</label>
+            <input id="customer-name" type="text" autocomplete="name" placeholder="Your full name" />
+          </div>
+
+          <div>
+            <label for="customer-phone">Phone number</label>
+            <input id="customer-phone" type="tel" autocomplete="tel" placeholder="Your phone number" />
+          </div>
+
+          <div>
+            <label for="customer-email">Email address</label>
+            <input id="customer-email" type="email" autocomplete="email" placeholder="Your email" />
+          </div>
+
+          <div>
+            <label for="customer-notes">Notes (optional)</label>
+            <textarea id="customer-notes" placeholder="Anything the business should know?"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>5. Review and confirm</h2>
+        <p>Check your services, appointment time, and contact details before submitting.</p>
+        <div id="review-summary" class="summary-list"></div>
+        <button id="confirm-booking" class="primary-button" type="button">Confirm booking</button>
+        <div id="booking-message" class="message" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <script type="module" src="/js/booking-ui.js"></script>
+  </body>
+</html>

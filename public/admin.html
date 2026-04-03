@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SnapSlot Admin</title>
+    <style>
+      .page {
+        width: 100%;
+        max-width: 1260px;
+        margin: 0 auto;
+        padding: 32px 18px 56px;
+      }
+
+      .hero,
+      .panel {
+        border-radius: 20px;
+        padding: 30px;
+        margin-bottom: 20px;
+      }
+
+      .hero h1 {
+        margin: 8px 0 12px;
+        font-size: clamp(2.55rem, 3.6vw, 3.25rem);
+        line-height: 1;
+        max-width: 14ch;
+      }
+
+      .panel h2 {
+        margin-bottom: 8px;
+        font-size: 28px;
+        line-height: 1.08;
+      }
+
+      .hero-top,
+      .section-header,
+      .inline-row,
+      .quick-links,
+      .window-row,
+      .action-row {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .hero-top,
+      .section-header {
+        justify-content: space-between;
+      }
+
+      .hero-meta,
+      .quick-links {
+        margin-top: 20px;
+      }
+
+      .hero-meta {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+
+      .grid {
+        display: grid;
+        gap: 22px;
+      }
+
+      .two-col {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .field-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+
+      .stats-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        margin: 18px 0 20px;
+      }
+
+      .status-note {
+        margin: 4px 0 20px;
+        font-size: 14px;
+      }
+
+      input,
+      button,
+      textarea {
+        width: 100%;
+      }
+
+      textarea {
+        min-height: 90px;
+        resize: vertical;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        padding: 13px 12px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .availability-day-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 14px;
+      }
+
+      .window-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .window-row input[type="time"] {
+        min-width: 130px;
+      }
+
+      .empty-state {
+        padding: 16px;
+        border: 1px dashed var(--border);
+        border-radius: 16px;
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.8);
+      }
+
+      .detail-list {
+        display: grid;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .mono {
+        font-family: "Courier New", Courier, monospace;
+      }
+
+      .table-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      @media (max-width: 900px) {
+        .two-col {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .page {
+          padding: 18px 12px 36px;
+        }
+
+        .hero,
+        .panel {
+          padding: 24px;
+          border-radius: 20px;
+        }
+
+        th,
+        td {
+          padding: 10px 8px;
+          font-size: 14px;
+        }
+      }
+    </style>
+    <link rel="stylesheet" href="/css/snapslot-theme.css" />
+  </head>
+  <body class="snapslot-admin">
+    <main class="page">
+      <section class="hero">
+        <div class="hero-top">
+          <div>
+            <p class="muted">SnapSlot business dashboard</p>
+            <h1 id="business-name">Loading SnapSlot dashboard...</h1>
+            <p id="business-summary">Manage services, availability, blocked times, and bookings from one place.</p>
+          </div>
+          <button id="sign-out-button" class="secondary small" type="button">Sign out</button>
+        </div>
+
+        <div class="hero-meta">
+          <div class="hero-card">
+            <strong>Timezone</strong>
+            <span id="business-timezone">Loading...</span>
+          </div>
+          <div class="hero-card">
+            <strong>Booking page</strong>
+            <span id="booking-page-link" class="mono">Loading...</span>
+          </div>
+        </div>
+
+        <div class="quick-links" aria-label="Dashboard quick links">
+          <a href="#services-panel">Services</a>
+          <a href="#availability-panel">Availability</a>
+          <a href="#blocked-times-panel">Blocked times</a>
+          <a href="#bookings-panel">Bookings</a>
+        </div>
+      </section>
+
+      <section id="services-panel" class="panel">
+        <div class="section-header">
+          <div>
+            <h2>Services</h2>
+            <p class="panel-intro">Add services with accurate duration, buffer, and pricing. Service descriptions are not yet supported by the current data model.</p>
+          </div>
+        </div>
+
+        <div id="services-summary-grid" class="stats-grid loading-surface" aria-label="Service summary" aria-busy="true">
+          <div class="stat-card is-loading">
+            <strong>Total services</strong>
+            <span id="services-total-count" class="stat-value"></span>
+          </div>
+          <div class="stat-card is-loading">
+            <strong>Active services</strong>
+            <span id="services-active-count" class="stat-value"></span>
+          </div>
+          <div class="stat-card is-loading">
+            <strong>Inactive services</strong>
+            <span id="services-inactive-count" class="stat-value"></span>
+          </div>
+          <div class="stat-card is-loading">
+            <strong>Average duration</strong>
+            <span id="services-average-duration" class="stat-value"></span>
+          </div>
+        </div>
+        <!-- Step 8 (Laws 1, 4, 6, 7): loading and empty-state notes keep service metrics honest without implying real values. -->
+        <p id="services-summary-note" class="status-note" aria-live="polite">Loading service summary...</p>
+
+        <div class="field-grid">
+          <div>
+            <label for="service-name">Service name</label>
+            <input id="service-name" type="text" />
+          </div>
+          <div>
+            <label for="service-duration">Duration (minutes)</label>
+            <input id="service-duration" type="number" min="1" />
+          </div>
+          <div>
+            <label for="service-price">Price (GBP)</label>
+            <input id="service-price" type="number" min="0" step="0.01" />
+          </div>
+          <div>
+            <label for="service-buffer">Buffer (minutes)</label>
+            <input id="service-buffer" type="number" min="0" />
+          </div>
+        </div>
+        <div class="action-row" style="margin-top: 14px;">
+          <button id="create-service-button" type="button" class="small">Add service</button>
+        </div>
+        <div id="service-message" class="message" aria-live="polite"></div>
+
+        <table style="margin-top: 18px;">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Duration</th>
+              <th>Buffer</th>
+              <th>Price</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="services-table-body"></tbody>
+        </table>
+      </section>
+
+      <section id="availability-panel" class="panel">
+        <div class="section-header">
+          <div>
+            <h2>Weekly availability</h2>
+            <p class="panel-intro">Set one or more working windows per day. Days without any windows are treated as closed.</p>
+          </div>
+          <span class="pill" id="availability-timezone-pill">Timezone: Loading...</span>
+        </div>
+
+        <div id="availability-rows" class="grid"></div>
+
+        <div class="action-row" style="margin-top: 18px;">
+          <button id="save-availability-button" type="button" class="small">Save weekly availability</button>
+        </div>
+        <div id="availability-message" class="message" aria-live="polite"></div>
+      </section>
+
+      <section id="blocked-times-panel" class="panel">
+        <div class="section-header">
+          <div>
+            <h2>Blocked times</h2>
+            <p class="panel-intro">Add, review, edit, or remove blocked time using your business timezone.</p>
+          </div>
+        </div>
+
+        <div class="grid two-col">
+          <div>
+            <div class="field-grid">
+              <div>
+                <label for="block-start">Start</label>
+                <input id="block-start" type="datetime-local" />
+              </div>
+              <div>
+                <label for="block-end">End</label>
+                <input id="block-end" type="datetime-local" />
+              </div>
+            </div>
+            <div style="margin-top: 12px;">
+              <label for="block-reason">Reason</label>
+              <input id="block-reason" type="text" placeholder="Optional note for this blocked time" />
+            </div>
+            <div class="action-row" style="margin-top: 14px;">
+              <button id="save-block-button" type="button" class="small">Add blocked time</button>
+              <button id="cancel-block-edit-button" type="button" class="secondary small" hidden>Cancel edit</button>
+            </div>
+            <div id="block-inline-hint" class="field-hint" aria-live="polite"></div>
+            <div id="block-message" class="message" aria-live="polite"></div>
+          </div>
+
+          <div id="blocked-times-surface" class="loading-surface" aria-busy="false">
+            <div class="field-grid">
+              <div>
+                <label for="blocked-times-date">Review date</label>
+                <input id="blocked-times-date" type="date" />
+              </div>
+            </div>
+            <div id="blocked-times-status" class="message" aria-live="polite"></div>
+            <table style="margin-top: 16px;">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Reason</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="blocked-times-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="bookings-panel" class="panel">
+        <div class="section-header">
+          <div>
+            <h2>Bookings</h2>
+            <p class="panel-intro">Review customer details, booked services, timing, notes, and booking status.</p>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Customer</th>
+              <th>Contact</th>
+              <th>Services</th>
+              <th>Time</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="bookings-table-body"></tbody>
+        </table>
+        <div id="booking-message" class="message" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <script type="module" src="/js/admin-ui.js"></script>
+  </body>
+</html>

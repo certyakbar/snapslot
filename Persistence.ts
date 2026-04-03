@@ -1,0 +1,128 @@
+import { promises as fs } from "fs";
+import path from "path";
+
+export interface PersistedBusinessProfile {
+  id: string;
+  name: string;
+  ownerName: string;
+  ownerEmail: string;
+  passwordHash: string;
+  passwordSalt: string;
+  timezone: string;
+  bookingPageSlug: string;
+}
+
+export interface PersistedService {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  price: number;
+  active: boolean;
+  bufferMinutes?: number;
+}
+
+export interface PersistedWeeklyAvailability {
+  dayOfWeek: number;
+  startMinutes: number;
+  endMinutes: number;
+  active: boolean;
+}
+
+export interface PersistedBlockedTime {
+  id: string;
+  start: string;
+  end: string;
+  reason?: string;
+}
+
+export interface PersistedCustomerDetails {
+  name: string;
+  phone: string;
+  email?: string;
+  notes?: string;
+}
+
+export interface PersistedBookingRecord {
+  id: string;
+  businessId: string;
+  customer: PersistedCustomerDetails;
+  serviceIds: string[];
+  totalDurationMinutes: number;
+  start: string;
+  end: string;
+  status: "pending" | "confirmed" | "cancelled" | "completed";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PersistedStoreState {
+  businesses: PersistedBusinessProfile[];
+  servicesByBusinessId: Record<string, PersistedService[]>;
+  availabilityByBusinessId: Record<string, PersistedWeeklyAvailability[]>;
+  blockedTimesByBusinessId: Record<string, PersistedBlockedTime[]>;
+  bookingsByBusinessId: Record<string, PersistedBookingRecord[]>;
+}
+
+const DATA_FILE = process.env.BOOKING_SYSTEM_DATA_FILE
+  ? path.resolve(process.env.BOOKING_SYSTEM_DATA_FILE)
+  : path.join(process.cwd(), "data", "store.json");
+const DATA_DIR = path.dirname(DATA_FILE);
+
+const EMPTY_STATE: PersistedStoreState = {
+  businesses: [],
+  servicesByBusinessId: {},
+  availabilityByBusinessId: {},
+  blockedTimesByBusinessId: {},
+  bookingsByBusinessId: {},
+};
+
+export async function ensureDataFile(): Promise<void> {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+
+  try {
+    await fs.access(DATA_FILE);
+  } catch {
+    await fs.writeFile(DATA_FILE, JSON.stringify(EMPTY_STATE, null, 2), "utf-8");
+  }
+}
+
+export async function readStoreFile(): Promise<PersistedStoreState> {
+  await ensureDataFile();
+
+  const raw = await fs.readFile(DATA_FILE, "utf-8");
+  const parsed = JSON.parse(raw) as Partial<PersistedStoreState>;
+
+  return {
+    businesses: Array.isArray(parsed.businesses) ? parsed.businesses : [],
+    servicesByBusinessId: parsed.servicesByBusinessId ?? {},
+    availabilityByBusinessId: parsed.availabilityByBusinessId ?? {},
+    blockedTimesByBusinessId: parsed.blockedTimesByBusinessId ?? {},
+    bookingsByBusinessId: parsed.bookingsByBusinessId ?? {},
+  };
+}
+
+export async function writeStoreFile(state: PersistedStoreState): Promise<void> {
+  await ensureDataFile();
+  const tempFile = path.join(
+    DATA_DIR,
+    `${path.basename(DATA_FILE)}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
+  );
+  const payload = JSON.stringify(state, null, 2);
+
+  try {
+    await fs.writeFile(tempFile, payload, "utf-8");
+    await fs.rename(tempFile, DATA_FILE);
+  } catch (error) {
+    try {
+      await fs.unlink(tempFile);
+    } catch {
+      // Best-effort cleanup only.
+    }
+
+    throw error;
+  }
+}
+
+export function getDataFilePath(): string {
+  return DATA_FILE;
+}

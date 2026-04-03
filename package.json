@@ -1,0 +1,23 @@
+{
+  "name": "booking-system",
+  "version": "1.0.0",
+  "description": "Local booking system",
+  "type": "module",
+  "main": "server.ts",
+  "scripts": {
+    "dev": "ts-node-esm server.ts",
+    "test": "node --loader ts-node/esm tests/bookingEngine.test.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.3.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}
