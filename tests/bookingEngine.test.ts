@@ -225,6 +225,70 @@ const tests: TestCase[] = [
     },
   },
   {
+    name: "generateAvailableSlots combines multiple service durations and buffers",
+    run: async () => {
+      const store = await BookingStore.create();
+
+      await store.createBusiness({
+        id: "biz_duration_buffer_slots",
+        name: "Duration Buffer Slots",
+        ownerName: "Owner Example",
+        ownerEmail: "duration-buffer-slots@example.com",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        timezone: "UTC",
+        bookingPageSlug: "duration-buffer-slots",
+      });
+
+      const serviceA = await store.createService({
+        businessId: "biz_duration_buffer_slots",
+        name: "Consultation",
+        durationMinutes: 30,
+        bufferMinutes: 10,
+        price: 30,
+      });
+
+      const serviceB = await store.createService({
+        businessId: "biz_duration_buffer_slots",
+        name: "Treatment",
+        durationMinutes: 20,
+        bufferMinutes: 5,
+        price: 25,
+      });
+
+      await store.updateWeeklyAvailability({
+        businessId: "biz_duration_buffer_slots",
+        availability: [{ dayOfWeek: 2, startMinutes: 9 * 60, endMinutes: 11 * 60, active: true }],
+      });
+
+      const slots = store.getAvailableSlots(
+        "biz_duration_buffer_slots",
+        new Date("2099-04-07"),
+        [serviceA.id, serviceB.id],
+        15
+      );
+
+      assert.deepEqual(
+        slots.map((slot) => slot.start.toISOString()),
+        [
+          "2099-04-07T09:00:00.000Z",
+          "2099-04-07T09:15:00.000Z",
+          "2099-04-07T09:30:00.000Z",
+          "2099-04-07T09:45:00.000Z",
+        ]
+      );
+      assert.deepEqual(
+        slots.map((slot) => slot.end.toISOString()),
+        [
+          "2099-04-07T10:05:00.000Z",
+          "2099-04-07T10:20:00.000Z",
+          "2099-04-07T10:35:00.000Z",
+          "2099-04-07T10:50:00.000Z",
+        ]
+      );
+    },
+  },
+  {
     name: "createBooking prevents near-simultaneous conflicting requests from both succeeding",
     run: async () => {
       const store = await BookingStore.create();
@@ -348,6 +412,66 @@ const tests: TestCase[] = [
 
       const bookings = store.listBookings("biz_concurrency_non_conflict");
       assert.equal(bookings.length, 2);
+    },
+  },
+  {
+    name: "createBooking rejects invalid or inactive services",
+    run: async () => {
+      const store = await BookingStore.create();
+
+      await store.createBusiness({
+        id: "biz_invalid_service_booking",
+        name: "Invalid Service Booking",
+        ownerName: "Owner Example",
+        ownerEmail: "invalid-service-booking@example.com",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        timezone: "UTC",
+        bookingPageSlug: "invalid-service-booking",
+      });
+
+      const inactiveService = await store.createService({
+        businessId: "biz_invalid_service_booking",
+        name: "Inactive Service",
+        durationMinutes: 30,
+        price: 20,
+        active: false,
+      });
+
+      await store.updateWeeklyAvailability({
+        businessId: "biz_invalid_service_booking",
+        availability: [{ dayOfWeek: 2, startMinutes: 9 * 60, endMinutes: 12 * 60, active: true }],
+      });
+
+      await assert.rejects(
+        () =>
+          store.createBooking({
+            businessId: "biz_invalid_service_booking",
+            requestedStart: new Date("2099-04-07T09:00:00.000Z"),
+            serviceIds: ["svc_does_not_exist"],
+            customer: {
+              name: "Invalid Service Customer",
+              phone: "3001",
+              email: "invalid-service@example.com",
+            },
+          }),
+        /invalid or inactive/i
+      );
+
+      await assert.rejects(
+        () =>
+          store.createBooking({
+            businessId: "biz_invalid_service_booking",
+            requestedStart: new Date("2099-04-07T09:30:00.000Z"),
+            serviceIds: [inactiveService.id],
+            customer: {
+              name: "Inactive Service Customer",
+              phone: "3002",
+              email: "inactive-service@example.com",
+            },
+          }),
+        /invalid or inactive/i
+      );
     },
   },
   {
