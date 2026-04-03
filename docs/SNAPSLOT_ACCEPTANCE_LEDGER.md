@@ -6,20 +6,20 @@ This ledger records verification truth against the Constitution. Statuses are PA
 
 | Area | Status | Proof / Notes |
 | --- | --- | --- |
-| Business registration | UNVERIFIED | Requires proof of registration flow, persistence, and account creation. |
-| Login | UNVERIFIED | Requires proof of authentication, credential validation, and session establishment. |
-| Logout | UNVERIFIED | Requires proof of session termination and post-logout verification. |
-| Session protection | UNVERIFIED | Requires proof that route guards enforce session presence and validity. |
-| Admin route protection | UNVERIFIED | Requires proof that admin routes are protected and enforce ownership. |
-| Redirect behaviour | UNVERIFIED | Requires proof of correct auth flow redirects (login required, post-auth destination). |
+| Business registration | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): `POST /api/signup` returns 201 for two independent businesses, `businessId` prefixed `biz_`, `adminUrl` equals `/admin/{businessId}`, session cookie set on response. |
+| Login | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): `POST /api/login` with valid credentials returns 200, `businessId` matches signup value, `adminUrl` equals `/admin/{businessId}`, session cookie established and confirmed active via `/api/session`. |
+| Logout | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): `POST /api/logout` returns 200; subsequent `GET /api/session` with the same cookie returns 401, confirming session destroyed. |
+| Session protection | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): unauthenticated `GET /api/session` returns 401; unauthenticated `GET /api/business/:id` returns 401; unauthenticated `GET /admin/:businessId` returns 302 redirect to login page. |
+| Admin route protection | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): unauthenticated `/admin/:businessId` returns 302 to `/login?redirect=...`; authenticated session for business B accessing business A's admin URL returns 302 to B's own admin URL, enforcing ownership. |
+| Redirect behaviour | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): (1) unauthenticated admin request → 302 to `/login?redirect=%2Fadmin%2F{businessId}`; (2) mismatched-session admin request → 302 to own admin URL; (3) authenticated `GET /login` → 302 to own admin URL. |
 | Password reset | UNVERIFIED | Later-phase per Constitution; no proof of implementation required yet. |
-| Business account isolation | UNVERIFIED | Requires proof that account data is strictly tenant-scoped. |
-| Service isolation | UNVERIFIED | Requires proof that services are tenant-scoped and inaccessible cross-tenant. |
-| Booking isolation | UNVERIFIED | Requires proof that bookings are tenant-scoped and inaccessible cross-tenant. |
-| Route isolation | UNVERIFIED | Requires proof that all routes enforce tenant boundaries in access logic. |
-| Session isolation | UNVERIFIED | Requires proof that session-scoped business ID cannot access other businesses. |
-| Slug isolation | UNVERIFIED | Requires proof that booking slugs do not collide across businesses. |
-| No cross-business leakage | UNVERIFIED | Requires proof across account, service, booking, route, and session boundaries. |
+| Business account isolation | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): session A accessing `GET /api/business/{businessIdB}` returns 403; session A businessId confirmed unchanged after business B creation via `/api/session`. |
+| Service isolation | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): A's service list includes A's service ID and excludes B's; B's service list includes B's service ID; cross-tenant service `GET` and `POST` with session A against business B both return 403. |
+| Booking isolation | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): A's booking list includes A's booking ID and excludes B's; cross-tenant booking `GET`, `POST`, and cancel `PATCH` with session A against business B all return 403. |
+| Route isolation | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): cross-tenant 403 verified for all route families — account `GET`, services `GET`/`POST`, availability `GET`/`PUT`, blocked-times `GET`/`POST`/`PATCH`/`DELETE`, slots `GET`, bookings `GET`/`POST`/cancel `PATCH`. |
+| Session isolation | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): session A confirmed bound to business A after business B creation; all cross-tenant API calls with session A return 403; post-logout session returns 401; fresh login creates independent session confirmed via `/api/session`. |
+| Slug isolation | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): public booking pages for slug A and slug B each return correct distinct business; slug A's public services exclude B's service ID; duplicate slug registration rejected with 400 and message matching `/slug is already taken/i`. |
+| No cross-business leakage | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): 403 returned for all cross-tenant access attempts across account, services, availability, blocked-times, slots, and bookings routes; A's booking list excludes B's booking ID; public slug A's service list excludes B's service ID; session boundaries enforce correct business scope throughout. |
 | Service create/list | UNVERIFIED | Requires proof of full service CRUD and listing operations. |
 | Service edit/remove/activate/deactivate | UNVERIFIED | Constitution requires state control; needs proof of all operations. |
 | Weekly availability | UNVERIFIED | Requires proof of weekly availability definition and persistence model. |
