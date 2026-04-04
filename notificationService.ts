@@ -71,9 +71,10 @@ export async function sendPaymentRequired(params: {
   customerName: string;
   serviceName: string;
   depositAmount: number;
+  paymentLabel: string;
 }): Promise<void> {
-  const subject = `Payment required to confirm your booking - ${params.businessName}`;
-  const body = `Your booking for ${params.serviceName} requires a deposit of GBP ${(params.depositAmount / 100).toFixed(2)} to be confirmed. Please contact ${params.businessName} to arrange payment.`;
+  const subject = `${params.paymentLabel} required to confirm your booking - ${params.businessName}`;
+  const body = `Your booking for ${params.serviceName} requires a ${params.paymentLabel.toLowerCase()} of GBP ${(params.depositAmount / 100).toFixed(2)} to be confirmed. Please contact ${params.businessName} to arrange payment.`;
   await Promise.all([
     transport.sendMail({ to: params.customerEmail, subject, text: body }),
     transport.sendMail({ to: params.businessEmail, subject: `Payment required: ${params.customerName}`, text: body }),

@@ -238,10 +238,11 @@
             .json()
             .then((payload) => {
               if (payload?.paymentStatus === "pending") {
+                const label = (payload.paymentLabel || "Deposit").toLowerCase();
                 setTimeout(() => {
                   setStatusMessage(
                     bookingMessage,
-                    "Booking received. A deposit is required to confirm your appointment. The business will contact you with payment details.",
+                    `Booking received. A ${label} is required to confirm your appointment. The business will contact you with payment details.`,
                     "success"
                   );
                 }, 0);

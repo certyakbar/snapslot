@@ -253,6 +253,7 @@ test("payment config defaults to disabled for a fresh business", async () => {
       depositEnabled: false,
       depositType: "fixed",
       depositAmount: 0,
+      paymentLabel: "Deposit",
     });
   } finally {
     await running.stop();
@@ -276,6 +277,7 @@ test("saving payment config returns 200 and subsequent GET returns the saved val
       depositEnabled: true,
       depositType: "fixed",
       depositAmount: 500,
+      paymentLabel: "Deposit",
     });
 
     const retrieved = await getPaymentConfig(running.port, businessId, session);
@@ -284,7 +286,53 @@ test("saving payment config returns 200 and subsequent GET returns the saved val
       depositEnabled: true,
       depositType: "fixed",
       depositAmount: 500,
+      paymentLabel: "Deposit",
     });
+  } finally {
+    await running.stop();
+  }
+}, 20000);
+
+test("saving a custom payment label persists and is returned", async () => {
+  const running = await startServerForTest();
+
+  try {
+    const session = { cookie: "" };
+    const { businessId } = await signUpBusiness(running.port, session);
+
+    const saved = await updatePaymentConfig(running.port, businessId, session, {
+      depositEnabled: true,
+      depositType: "fixed",
+      depositAmount: 500,
+      paymentLabel: "Booking fee",
+    });
+
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.paymentLabel, "Booking fee");
+
+    const retrieved = await getPaymentConfig(running.port, businessId, session);
+    assert.equal(retrieved.status, 200);
+    assert.equal(retrieved.body.paymentLabel, "Booking fee");
+  } finally {
+    await running.stop();
+  }
+}, 20000);
+
+test("payment label over 30 characters is rejected with 400", async () => {
+  const running = await startServerForTest();
+
+  try {
+    const session = { cookie: "" };
+    const { businessId } = await signUpBusiness(running.port, session);
+
+    const rejected = await updatePaymentConfig(running.port, businessId, session, {
+      depositEnabled: true,
+      depositType: "fixed",
+      depositAmount: 500,
+      paymentLabel: "1234567890123456789012345678901",
+    });
+
+    assert.equal(rejected.status, 400);
   } finally {
     await running.stop();
   }

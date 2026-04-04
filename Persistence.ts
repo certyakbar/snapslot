@@ -13,6 +13,7 @@ export interface PersistedBusinessProfile {
   depositEnabled: boolean;
   depositType: "fixed" | "percentage";
   depositAmount: number;
+  paymentLabel?: string;
 }
 
 export interface PersistedService {
@@ -104,6 +105,7 @@ export async function readStoreFile(): Promise<PersistedStoreState> {
           depositEnabled: b.depositEnabled ?? false,
           depositType: b.depositType ?? "fixed",
           depositAmount: b.depositAmount ?? 0,
+          paymentLabel: b.paymentLabel ?? "Deposit",
         }))
       : [],
     servicesByBusinessId: parsed.servicesByBusinessId ?? {},

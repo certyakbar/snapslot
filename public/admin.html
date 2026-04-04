@@ -245,6 +245,11 @@
             </div>
           </div>
 
+          <div>
+            <label for="payment-label-input">Payment label</label>
+            <input id="payment-label-input" type="text" maxlength="30" placeholder="e.g. Deposit, Booking fee, Retainer" />
+          </div>
+
           <div class="action-row">
             <button id="save-payment-config-button" type="button" class="small">Save payment settings</button>
           </div>
@@ -459,6 +464,7 @@
       const paymentTypeInputs = Array.from(document.querySelectorAll("input[name='payment-deposit-type']"));
       const paymentAmountInput = document.getElementById("payment-deposit-amount");
       const paymentAmountLabel = document.getElementById("payment-deposit-amount-label");
+      const paymentLabelInput = document.getElementById("payment-label-input");
       const savePaymentConfigButton = document.getElementById("save-payment-config-button");
       const paymentConfigMessage = document.getElementById("payment-config-message");
       const bookingsTableBody = document.getElementById("bookings-table-body");
@@ -527,6 +533,7 @@
             input.checked = input.value === (config.depositType === "percentage" ? "percentage" : "fixed");
           });
           paymentAmountInput.value = String(Number(config.depositAmount ?? 0));
+          paymentLabelInput.value = String(config.paymentLabel ?? "Deposit");
           syncPaymentAmountLabel();
           clearStatusMessage(paymentConfigMessage);
         } catch (error) {
@@ -553,6 +560,7 @@
             depositEnabled: paymentEnabledInput.checked,
             depositType: getSelectedDepositType(),
             depositAmount: Number(paymentAmountInput.value || 0),
+            paymentLabel: paymentLabelInput.value.trim() || "Deposit",
           };
 
           await requestJson(`/api/business/${encodeURIComponent(qrBusinessId)}/payment-config`, {

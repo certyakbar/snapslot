@@ -47,6 +47,7 @@ export interface BusinessProfile {
   depositEnabled?: boolean;
   depositType?: "fixed" | "percentage";
   depositAmount?: number;
+  paymentLabel?: string;
 }
 
 export interface BusinessView {
@@ -63,6 +64,7 @@ export interface PaymentConfig {
   depositEnabled: boolean;
   depositType: "fixed" | "percentage";
   depositAmount: number;
+  paymentLabel: string;
 }
 
 export interface BookingRecord extends ExistingBooking {
@@ -199,6 +201,7 @@ export class BookingStore {
       depositEnabled: profile.depositEnabled ?? false,
       depositType: profile.depositType ?? "fixed",
       depositAmount: profile.depositAmount ?? 0,
+      paymentLabel: profile.paymentLabel ?? "Deposit",
     };
 
     const nextState = this.cloneState();
@@ -245,6 +248,7 @@ export class BookingStore {
         depositEnabled: business.depositEnabled ?? false,
         depositType: business.depositType ?? "fixed",
         depositAmount: business.depositAmount ?? 0,
+        paymentLabel: business.paymentLabel ?? "Deposit",
       },
     };
   }
@@ -336,6 +340,9 @@ export class BookingStore {
     if (config.depositType === "percentage" && config.depositAmount > 100) {
       throw new HttpError(400, "Deposit percentage must be between 0 and 100.");
     }
+    if (!config.paymentLabel.trim() || config.paymentLabel.trim().length > 30) {
+      throw new HttpError(400, "Payment label must be between 1 and 30 characters.");
+    }
 
     const nextState = this.cloneState();
     const business = nextState.businesses.find((b) => b.id === businessId);
@@ -344,9 +351,13 @@ export class BookingStore {
     business.depositEnabled = config.depositEnabled;
     business.depositType = config.depositType;
     business.depositAmount = config.depositAmount;
+    business.paymentLabel = config.paymentLabel.trim();
 
     await this.persistState(nextState);
-    return config;
+    return {
+      ...config,
+      paymentLabel: config.paymentLabel.trim(),
+    };
   }
 
   async createService(input: CreateServiceInput): Promise<Service> {
@@ -946,6 +957,7 @@ export class BookingStore {
       depositEnabled: business.depositEnabled ?? false,
       depositType: business.depositType ?? "fixed",
       depositAmount: business.depositAmount ?? 0,
+      paymentLabel: business.paymentLabel ?? "Deposit",
     }));
     this.state.services = new Map(
       Object.entries(persisted.servicesByBusinessId).map(([businessId, services]) => [
@@ -1044,6 +1056,7 @@ export class BookingStore {
         depositEnabled: business.depositEnabled ?? false,
         depositType: business.depositType ?? "fixed",
         depositAmount: business.depositAmount ?? 0,
+        paymentLabel: business.paymentLabel ?? "Deposit",
       })),
       servicesByBusinessId: Object.fromEntries(
         Array.from(state.services.entries()).map(([businessId, services]) => [
@@ -1096,6 +1109,7 @@ export class BookingStore {
         depositEnabled: business.depositEnabled ?? false,
         depositType: business.depositType ?? "fixed",
         depositAmount: business.depositAmount ?? 0,
+        paymentLabel: business.paymentLabel ?? "Deposit",
       },
     };
   }

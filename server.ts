@@ -304,6 +304,7 @@ async function startServer(): Promise<void> {
           notes: req.body.customer?.notes ? String(req.body.customer.notes) : undefined,
         },
       });
+      const paymentConfig = store.getBusinessView(business.id).paymentConfig;
 
       if (booking.paymentStatus === "pending") {
         sendPaymentRequired({
@@ -313,6 +314,7 @@ async function startServer(): Promise<void> {
           customerName: booking.customer.name,
           serviceName: booking.services.map((s) => s.name).join(", "),
           depositAmount: booking.depositAmount,
+          paymentLabel: paymentConfig.paymentLabel,
         }).catch(console.error);
       } else {
         sendBookingConfirmation({
@@ -325,7 +327,10 @@ async function startServer(): Promise<void> {
         }).catch(console.error);
       }
 
-      res.status(201).json(booking);
+      res.status(201).json({
+        ...booking,
+        paymentLabel: paymentConfig.paymentLabel,
+      });
     } catch (error) {
       handleError(res, error);
     }
@@ -357,6 +362,7 @@ async function startServer(): Promise<void> {
         depositEnabled: Boolean(req.body.depositEnabled),
         depositType: req.body.depositType === "percentage" ? "percentage" : "fixed",
         depositAmount: Number(req.body.depositAmount ?? 0),
+        paymentLabel: String(req.body.paymentLabel ?? "Deposit").trim() || "Deposit",
       };
       const config = await store.updatePaymentConfig(req.params.businessId, nextConfig);
       res.json(config);
@@ -560,6 +566,7 @@ async function startServer(): Promise<void> {
           notes: req.body.customer?.notes ? String(req.body.customer.notes) : undefined,
         },
       });
+      const paymentConfig = store.getBusinessView(req.params.businessId).paymentConfig;
 
       if (booking.paymentStatus === "pending") {
         sendPaymentRequired({
@@ -569,6 +576,7 @@ async function startServer(): Promise<void> {
           customerName: booking.customer.name,
           serviceName: booking.services.map((s) => s.name).join(", "),
           depositAmount: booking.depositAmount,
+          paymentLabel: paymentConfig.paymentLabel,
         }).catch(console.error);
       } else {
         sendBookingConfirmation({
@@ -581,7 +589,10 @@ async function startServer(): Promise<void> {
         }).catch(console.error);
       }
 
-      res.status(201).json(booking);
+      res.status(201).json({
+        ...booking,
+        paymentLabel: paymentConfig.paymentLabel,
+      });
     } catch (error) {
       handleError(res, error);
     }
