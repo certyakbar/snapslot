@@ -6,7 +6,7 @@
   "main": "server.ts",
   "scripts": {
     "dev": "ts-node-esm server.ts",
-    "test": "node --loader ts-node/esm tests/bookingEngine.test.ts"
+    "test": "node --loader ts-node/esm tests/bookingEngine.test.ts && node --loader ts-node/esm tests/authIsolation.test.ts && node --loader ts-node/esm tests/coreProof.test.ts"
   },
   "keywords": [],
   "author": "",
