@@ -30,6 +30,7 @@ import type {
 } from "./Persistence.ts";
 
 import { readStoreFile, writeStoreFile } from "./Persistence.ts";
+import { HttpError } from "./errors.ts";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -154,24 +155,24 @@ export class BookingStore {
   }
 
   async createBusiness(profile: BusinessProfile): Promise<BusinessProfile> {
-    if (!profile.id.trim()) throw new Error("Business id is required.");
-    if (!profile.name.trim()) throw new Error("Business name is required.");
-    if (!profile.ownerName.trim()) throw new Error("Owner full name is required.");
-    if (!profile.ownerEmail.trim()) throw new Error("Business email is required.");
-    if (!profile.passwordHash.trim()) throw new Error("Password hash is required.");
-    if (!profile.passwordSalt.trim()) throw new Error("Password salt is required.");
-    if (!profile.bookingPageSlug.trim()) throw new Error("Booking page slug is required.");
+    if (!profile.id.trim()) throw new HttpError(400, "Business id is required.");
+    if (!profile.name.trim()) throw new HttpError(400, "Business name is required.");
+    if (!profile.ownerName.trim()) throw new HttpError(400, "Owner full name is required.");
+    if (!profile.ownerEmail.trim()) throw new HttpError(400, "Business email is required.");
+    if (!profile.passwordHash.trim()) throw new HttpError(400, "Password hash is required.");
+    if (!profile.passwordSalt.trim()) throw new HttpError(400, "Password salt is required.");
+    if (!profile.bookingPageSlug.trim()) throw new HttpError(400, "Booking page slug is required.");
 
     const alreadyExists = this.state.businesses.some((business) => business.id === profile.id);
     if (alreadyExists) {
-      throw new Error(`Business with id '${profile.id}' already exists.`);
+      throw new HttpError(400, `Business with id '${profile.id}' already exists.`);
     }
 
     const emailTaken = this.state.businesses.some(
       (business) => business.ownerEmail.toLowerCase() === profile.ownerEmail.toLowerCase()
     );
     if (emailTaken) {
-      throw new Error("That business email is already in use.");
+      throw new HttpError(400, "That business email is already in use.");
     }
 
     const nextState = this.cloneState();
@@ -201,7 +202,7 @@ export class BookingStore {
 
   getBusiness(businessId: string): BusinessProfile {
     const business = this.state.businesses.find((item) => item.id === businessId);
-    if (!business) throw new Error(`Business '${businessId}' was not found.`);
+    if (!business) throw new HttpError(400, `Business '${businessId}' was not found.`);
     return business;
   }
 
@@ -217,7 +218,7 @@ export class BookingStore {
     );
 
     if (!business) {
-      throw new Error(`Business with booking slug '${bookingPageSlug}' was not found.`);
+      throw new HttpError(400, `Business with booking slug '${bookingPageSlug}' was not found.`);
     }
 
     return business;
@@ -239,22 +240,22 @@ export class BookingStore {
     const passwordSalt = input.passwordSalt.trim();
 
     if (!businessIdOrSlug) {
-      throw new Error("Business id or booking page slug is required.");
+      throw new HttpError(400, "Business id or booking page slug is required.");
     }
     if (!ownerName) {
-      throw new Error("Owner full name is required.");
+      throw new HttpError(400, "Owner full name is required.");
     }
     if (!ownerEmail) {
-      throw new Error("Business email is required.");
+      throw new HttpError(400, "Business email is required.");
     }
     if (!EMAIL_PATTERN.test(ownerEmail)) {
-      throw new Error("A valid business email is required.");
+      throw new HttpError(400, "A valid business email is required.");
     }
     if (!passwordHash) {
-      throw new Error("Password hash is required.");
+      throw new HttpError(400, "Password hash is required.");
     }
     if (!passwordSalt) {
-      throw new Error("Password salt is required.");
+      throw new HttpError(400, "Password salt is required.");
     }
 
     const nextState = this.cloneState();
@@ -264,7 +265,7 @@ export class BookingStore {
     );
 
     if (businessIndex === -1) {
-      throw new Error("Business was not found.");
+      throw new HttpError(400, "Business was not found.");
     }
 
     const emailTaken = nextState.businesses.some(
@@ -272,7 +273,7 @@ export class BookingStore {
     );
 
     if (emailTaken) {
-      throw new Error("That business email is already in use.");
+      throw new HttpError(400, "That business email is already in use.");
     }
 
     const updatedBusiness: BusinessProfile = {
@@ -325,7 +326,7 @@ export class BookingStore {
     const index = services.findIndex((service) => service.id === input.serviceId);
 
     if (index === -1) {
-      throw new Error("Service was not found.");
+      throw new HttpError(400, "Service was not found.");
     }
 
     const current = services[index];
@@ -356,7 +357,7 @@ export class BookingStore {
     const nextServices = services.filter((service) => service.id !== serviceId);
 
     if (nextServices.length === services.length) {
-      throw new Error("Service was not found.");
+      throw new HttpError(400, "Service was not found.");
     }
 
     nextState.services.set(businessId, nextServices);
@@ -424,7 +425,7 @@ export class BookingStore {
     const index = blockedTimes.findIndex((blockedTime) => blockedTime.id === input.blockedTimeId);
 
     if (index === -1) {
-      throw new Error("Blocked time was not found.");
+      throw new HttpError(400, "Blocked time was not found.");
     }
 
     const updated: BlockedTime = {
@@ -449,7 +450,7 @@ export class BookingStore {
     const nextBlockedTimes = blockedTimes.filter((blockedTime) => blockedTime.id !== blockedTimeId);
 
     if (nextBlockedTimes.length === blockedTimes.length) {
-      throw new Error("Blocked time was not found.");
+      throw new HttpError(400, "Blocked time was not found.");
     }
 
     nextState.blockedTimes.set(businessId, nextBlockedTimes);
@@ -501,16 +502,16 @@ export class BookingStore {
       const business = this.getBusiness(input.businessId);
 
       if (!(input.requestedStart instanceof Date)) {
-        throw new Error("Requested booking time is invalid.");
+        throw new HttpError(400, "Requested booking time is invalid.");
       }
 
       const requestedStartTime = input.requestedStart.getTime();
 
       if (Number.isNaN(requestedStartTime)) {
-        throw new Error("Requested booking time is invalid.");
+        throw new HttpError(400, "Requested booking time is invalid.");
       }
       if (requestedStartTime <= Date.now()) {
-        throw new Error("Requested booking time must be in the future.");
+        throw new HttpError(400, "Requested booking time must be in the future.");
       }
 
       const customer = {
@@ -520,17 +521,17 @@ export class BookingStore {
         notes: input.customer.notes?.trim(),
       };
 
-      if (!customer.name) throw new Error("Customer name is required.");
-      if (!customer.phone) throw new Error("Customer phone is required.");
-      if (!customer.email) throw new Error("Customer email is required.");
+      if (!customer.name) throw new HttpError(400, "Customer name is required.");
+      if (!customer.phone) throw new HttpError(400, "Customer phone is required.");
+      if (!customer.email) throw new HttpError(400, "Customer email is required.");
       if (!EMAIL_PATTERN.test(customer.email)) {
-        throw new Error("Customer email is invalid.");
+        throw new HttpError(400, "Customer email is invalid.");
       }
 
       const services = this.resolveRequestedServices(input.businessId, input.serviceIds);
       const availabilityWindows = this.resolveAvailabilityForInstant(input.businessId, input.requestedStart);
       if (availabilityWindows.length === 0) {
-        throw new Error("No working availability exists for the selected date.");
+        throw new HttpError(400, "No working availability exists for the selected date.");
       }
 
       const computation: BookingComputation = buildBookingComputation(input.requestedStart, services);
@@ -542,11 +543,11 @@ export class BookingStore {
       );
 
       if (!fitsAvailability) {
-        throw new Error("Booking does not fit within business working hours.");
+        throw new HttpError(400, "Booking does not fit within business working hours.");
       }
 
       if (conflictsWithExistingTime(computation.start, computation.end, activeBookings, blockedTimes)) {
-        throw new Error("Selected booking time is no longer available.");
+        throw new HttpError(400, "Selected booking time is no longer available.");
       }
 
       const now = new Date();
@@ -588,7 +589,7 @@ export class BookingStore {
     const bookings = nextState.bookings.get(businessId) ?? [];
     const booking = bookings.find((item) => item.id === bookingId);
     if (!booking) {
-      throw new Error(`Booking '${bookingId}' was not found.`);
+      throw new HttpError(400, `Booking '${bookingId}' was not found.`);
     }
 
     booking.status = "cancelled";
@@ -609,11 +610,11 @@ export class BookingStore {
       const business = this.getBusiness(businessId);
 
       if (!(newStart instanceof Date) || Number.isNaN(newStart.getTime())) {
-        throw new Error("Requested reschedule time is invalid.");
+        throw new HttpError(400, "Requested reschedule time is invalid.");
       }
 
       if (newStart.getTime() <= Date.now()) {
-        throw new Error("Requested reschedule time must be in the future.");
+        throw new HttpError(400, "Requested reschedule time must be in the future.");
       }
 
       const nextState = this.cloneState();
@@ -621,7 +622,7 @@ export class BookingStore {
       const booking = bookings.find((item) => item.id === bookingId);
 
       if (!booking) {
-        throw new Error(`Booking '${bookingId}' was not found.`);
+        throw new HttpError(400, `Booking '${bookingId}' was not found.`);
       }
 
       if (
@@ -629,7 +630,7 @@ export class BookingStore {
         booking.status === "completed" ||
         booking.status === "no_show"
       ) {
-        throw new Error("Only active bookings can be rescheduled.");
+        throw new HttpError(400, "Only active bookings can be rescheduled.");
       }
 
       const services = this.resolveRequestedServices(businessId, booking.serviceIds);
@@ -637,7 +638,7 @@ export class BookingStore {
 
       const availabilityWindows = this.resolveAvailabilityForInstant(businessId, newStart);
       if (availabilityWindows.length === 0) {
-        throw new Error("No working availability exists for the selected date.");
+        throw new HttpError(400, "No working availability exists for the selected date.");
       }
 
       const fitsAvailability = availabilityWindows.some((window) =>
@@ -645,14 +646,14 @@ export class BookingStore {
       );
 
       if (!fitsAvailability) {
-        throw new Error("Reschedule time does not fit within business working hours.");
+        throw new HttpError(400, "Reschedule time does not fit within business working hours.");
       }
 
       const otherActiveBookings = this.listActiveBookings(businessId).filter((item) => item.id !== bookingId);
       const blockedTimes = this.listBlockedTimes(businessId);
 
       if (conflictsWithExistingTime(computation.start, computation.end, otherActiveBookings, blockedTimes)) {
-        throw new Error("Selected reschedule time is not available.");
+        throw new HttpError(400, "Selected reschedule time is not available.");
       }
 
       booking.start = computation.start;
@@ -669,31 +670,31 @@ export class BookingStore {
   }
 
   private assertValidService(service: Service): void {
-    if (!service.name) throw new Error("Service name is required.");
+    if (!service.name) throw new HttpError(400, "Service name is required.");
     if (!Number.isInteger(service.durationMinutes) || service.durationMinutes <= 0) {
-      throw new Error("Service duration must be a positive whole number.");
+      throw new HttpError(400, "Service duration must be a positive whole number.");
     }
     if (
       service.bufferMinutes !== undefined &&
       (!Number.isInteger(service.bufferMinutes) || service.bufferMinutes < 0)
     ) {
-      throw new Error("Service buffer must be zero or more.");
+      throw new HttpError(400, "Service buffer must be zero or more.");
     }
     if (typeof service.price !== "number" || Number.isNaN(service.price) || service.price < 0) {
-      throw new Error("Service price must be zero or more.");
+      throw new HttpError(400, "Service price must be zero or more.");
     }
   }
 
   private resolveRequestedServices(businessId: string, serviceIds: string[]): Service[] {
     if (serviceIds.length === 0) {
-      throw new Error("At least one service must be selected.");
+      throw new HttpError(400, "At least one service must be selected.");
     }
 
     const services = this.state.services.get(businessId) ?? [];
     return serviceIds.map((serviceId) => {
       const service = services.find((item) => item.id === serviceId && item.active);
       if (!service) {
-        throw new Error(`Service '${serviceId}' is invalid or inactive.`);
+        throw new HttpError(400, `Service '${serviceId}' is invalid or inactive.`);
       }
       return service;
     });
@@ -796,13 +797,13 @@ export class BookingStore {
 
   private assertValidBlockedTimeRange(start: Date, end: Date): void {
     if (!(start instanceof Date) || Number.isNaN(start.getTime())) {
-      throw new Error("Blocked time start must be a valid date.");
+      throw new HttpError(400, "Blocked time start must be a valid date.");
     }
     if (!(end instanceof Date) || Number.isNaN(end.getTime())) {
-      throw new Error("Blocked time end must be a valid date.");
+      throw new HttpError(400, "Blocked time end must be a valid date.");
     }
     if (start >= end) {
-      throw new Error("Blocked time start must be before blocked time end.");
+      throw new HttpError(400, "Blocked time start must be before blocked time end.");
     }
   }
 

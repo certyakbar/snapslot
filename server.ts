@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { hashPassword, verifyPassword } from "./auth.ts";
 import { BookingStore } from "./bookingStore.ts";
+import { HttpError } from "./errors.ts";
 import {
   sendBookingConfirmation,
   sendCancellationNotification,
@@ -54,20 +55,14 @@ type AuthSession = {
   expiresAt: number;
 };
 
-class HttpError extends Error {
-  status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
-
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
 const SESSION_COOKIE_NAME = "booking_session";
 const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const sessions = new Map<string, AuthSession>();
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+const LOGIN_RATE_LIMIT_MAX = 5;
+const LOGIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -170,6 +165,9 @@ async function startServer(): Promise<void> {
 
   app.post("/api/login", (req: Request<{}, {}, LoginBody>, res: Response) => {
     try {
+      const clientIp = req.ip ?? "unknown";
+      checkLoginRateLimit(clientIp);
+
       const email = String(req.body.email ?? "").trim().toLowerCase();
       const password = String(req.body.password ?? "");
 
@@ -192,6 +190,7 @@ async function startServer(): Promise<void> {
 
       const session = createSession(business.id);
       setSessionCookie(res, session.id);
+      resetLoginRateLimit(clientIp);
 
       res.json({
         ok: true,
@@ -712,16 +711,18 @@ function getSessionFromRequest(req: Request): AuthSession | null {
 
 function setSessionCookie(res: Response, sessionId: string): void {
   const maxAgeSeconds = Math.floor(SESSION_MAX_AGE_MS / 1000);
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   res.setHeader(
     "Set-Cookie",
-    `${SESSION_COOKIE_NAME}=${sessionId}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAgeSeconds}`
+    `${SESSION_COOKIE_NAME}=${sessionId}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure}`
   );
 }
 
 function clearSessionCookie(res: Response): void {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   res.setHeader(
     "Set-Cookie",
-    `${SESSION_COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`
+    `${SESSION_COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${secure}`
   );
 }
 
@@ -820,8 +821,31 @@ function isValidTimeZone(value: string): boolean {
   }
 }
 
+function checkLoginRateLimit(ip: string): void {
+  const now = Date.now();
+  const record = loginAttempts.get(ip);
+
+  if (!record || record.resetAt <= now) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + LOGIN_RATE_LIMIT_WINDOW_MS });
+    return;
+  }
+
+  if (record.count >= LOGIN_RATE_LIMIT_MAX) {
+    throw new HttpError(429, "Too many login attempts. Please try again later.");
+  }
+
+  record.count += 1;
+}
+
+function resetLoginRateLimit(ip: string): void {
+  loginAttempts.delete(ip);
+}
+
 function handleError(res: Response, error: unknown): void {
-  const message = error instanceof Error ? error.message : "Unknown server error.";
-  const status = error instanceof HttpError ? error.status : 400;
-  res.status(status).json({ error: message });
+  if (error instanceof HttpError) {
+    res.status(error.status).json({ error: error.message });
+  } else {
+    console.error("Unexpected server error:", error);
+    res.status(500).json({ error: "An unexpected error occurred." });
+  }
 }

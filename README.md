@@ -35,12 +35,12 @@ SnapSlot is being built in phases.
 - booking engine
 - booking confirmation
 - business-side booking visibility
+- email notifications
 
 ### Later phases
 - subscription and billing
 - password reset
 - QR code generation
-- notifications
 - deposits and payment collection
 - refunds
 - cancellations and billing policies
