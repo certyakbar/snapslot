@@ -118,6 +118,16 @@ export interface CreateServiceInput {
   bufferMinutes?: number;
 }
 
+export interface UpdateServiceInput {
+  businessId: string;
+  serviceId: string;
+  name?: string;
+  durationMinutes?: number;
+  price?: number;
+  active?: boolean;
+  bufferMinutes?: number;
+}
+
 interface StoreState {
   businesses: BusinessProfile[];
   services: Map<string, Service[]>;
@@ -291,19 +301,7 @@ export class BookingStore {
       bufferMinutes: input.bufferMinutes ?? 0,
     };
 
-    if (!service.name) throw new Error("Service name is required.");
-    if (!Number.isInteger(service.durationMinutes) || service.durationMinutes <= 0) {
-      throw new Error("Service duration must be a positive whole number.");
-    }
-    if (
-      service.bufferMinutes !== undefined &&
-      (!Number.isInteger(service.bufferMinutes) || service.bufferMinutes < 0)
-    ) {
-      throw new Error("Service buffer must be zero or more.");
-    }
-    if (typeof service.price !== "number" || Number.isNaN(service.price) || service.price < 0) {
-      throw new Error("Service price must be zero or more.");
-    }
+    this.assertValidService(service);
 
     const nextState = this.cloneState();
     const current = nextState.services.get(input.businessId) ?? [];
@@ -317,6 +315,52 @@ export class BookingStore {
   listServices(businessId: string): Service[] {
     this.getBusiness(businessId);
     return [...(this.state.services.get(businessId) ?? [])];
+  }
+
+  async updateService(input: UpdateServiceInput): Promise<Service> {
+    this.getBusiness(input.businessId);
+
+    const nextState = this.cloneState();
+    const services = nextState.services.get(input.businessId) ?? [];
+    const index = services.findIndex((service) => service.id === input.serviceId);
+
+    if (index === -1) {
+      throw new Error("Service was not found.");
+    }
+
+    const current = services[index];
+    const updated: Service = {
+      ...current,
+      name: input.name === undefined ? current.name : input.name.trim(),
+      durationMinutes:
+        input.durationMinutes === undefined ? current.durationMinutes : input.durationMinutes,
+      price: input.price === undefined ? current.price : input.price,
+      active: input.active === undefined ? current.active : input.active,
+      bufferMinutes: input.bufferMinutes === undefined ? current.bufferMinutes : input.bufferMinutes,
+    };
+
+    this.assertValidService(updated);
+
+    services[index] = updated;
+    nextState.services.set(input.businessId, services);
+
+    await this.persistState(nextState);
+    return updated;
+  }
+
+  async deleteService(businessId: string, serviceId: string): Promise<void> {
+    this.getBusiness(businessId);
+
+    const nextState = this.cloneState();
+    const services = nextState.services.get(businessId) ?? [];
+    const nextServices = services.filter((service) => service.id !== serviceId);
+
+    if (nextServices.length === services.length) {
+      throw new Error("Service was not found.");
+    }
+
+    nextState.services.set(businessId, nextServices);
+    await this.persistState(nextState);
   }
 
   async updateWeeklyAvailability(input: UpdateBusinessScheduleInput): Promise<WeeklyAvailability[]> {
@@ -554,6 +598,22 @@ export class BookingStore {
 
     const services = nextState.services.get(businessId) ?? [];
     return this.attachServiceSnapshots(booking, services);
+  }
+
+  private assertValidService(service: Service): void {
+    if (!service.name) throw new Error("Service name is required.");
+    if (!Number.isInteger(service.durationMinutes) || service.durationMinutes <= 0) {
+      throw new Error("Service duration must be a positive whole number.");
+    }
+    if (
+      service.bufferMinutes !== undefined &&
+      (!Number.isInteger(service.bufferMinutes) || service.bufferMinutes < 0)
+    ) {
+      throw new Error("Service buffer must be zero or more.");
+    }
+    if (typeof service.price !== "number" || Number.isNaN(service.price) || service.price < 0) {
+      throw new Error("Service price must be zero or more.");
+    }
   }
 
   private resolveRequestedServices(businessId: string, serviceIds: string[]): Service[] {

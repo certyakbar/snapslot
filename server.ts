@@ -24,6 +24,11 @@ type BusinessParams = {
   businessId: string;
 };
 
+type ServiceParams = {
+  businessId: string;
+  serviceId: string;
+};
+
 type BookingParams = {
   businessId: string;
   bookingId: string;
@@ -322,6 +327,43 @@ async function startServer(): Promise<void> {
       handleError(res, error);
     }
   });
+
+  app.patch(
+    "/api/business/:businessId/services/:serviceId",
+    async (req: Request<ServiceParams>, res: Response) => {
+      try {
+        assertBusinessSession(req, res, req.params.businessId);
+        const service = await store.updateService({
+          businessId: req.params.businessId,
+          serviceId: req.params.serviceId,
+          name: req.body.name === undefined ? undefined : String(req.body.name ?? ""),
+          durationMinutes:
+            req.body.durationMinutes === undefined ? undefined : Number(req.body.durationMinutes),
+          price: req.body.price === undefined ? undefined : Number(req.body.price),
+          active: req.body.active === undefined ? undefined : Boolean(req.body.active),
+          bufferMinutes:
+            req.body.bufferMinutes === undefined ? undefined : Number(req.body.bufferMinutes),
+        });
+
+        res.json(service);
+      } catch (error) {
+        handleError(res, error);
+      }
+    }
+  );
+
+  app.delete(
+    "/api/business/:businessId/services/:serviceId",
+    async (req: Request<ServiceParams>, res: Response) => {
+      try {
+        assertBusinessSession(req, res, req.params.businessId);
+        await store.deleteService(req.params.businessId, req.params.serviceId);
+        res.status(204).send();
+      } catch (error) {
+        handleError(res, error);
+      }
+    }
+  );
 
   app.get("/api/business/:businessId/availability", (req: Request<BusinessParams>, res: Response) => {
     try {

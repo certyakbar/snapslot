@@ -355,6 +355,33 @@ const tests: TestCase[] = [
         );
         assert.equal(crossBusinessServiceList.status, 403);
 
+        const crossBusinessServicePatch = await requestJson<{ error: string }>(
+          running.port,
+          `/api/business/${signupB.body.businessId}/services/${serviceB.body.id}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              name: "Cross Edit",
+              durationMinutes: 45,
+              price: 30,
+              bufferMinutes: 10,
+              active: false,
+            }),
+          },
+          sessionA
+        );
+        assert.equal(crossBusinessServicePatch.status, 403);
+
+        const crossBusinessServiceDelete = await fetch(
+          buildUrl(running.port, `/api/business/${signupB.body.businessId}/services/${serviceB.body.id}`),
+          {
+            method: "DELETE",
+            headers: { Cookie: sessionA.cookie },
+            redirect: "manual",
+          }
+        );
+        assert.equal(crossBusinessServiceDelete.status, 403);
+
         const availabilityUpdateA = await requestJson<Array<{ dayOfWeek: number; startMinutes: number; endMinutes: number }>>(
           running.port,
           `/api/business/${signupA.body.businessId}/availability`,

@@ -223,6 +223,148 @@ const tests: TestCase[] = [
   },
 
   {
+    name: "service lifecycle route supports edit, activate/deactivate, and remove",
+    run: async () => {
+      const running = await startServerForTest();
+
+      try {
+        const session: CookieSession = { cookie: "" };
+        const slug = `service-life-${Math.random().toString(36).slice(2, 10)}`;
+        const email = `${slug}@example.com`;
+
+        const signup = await requestJson<{ businessId: string }>(
+          running.port,
+          "/api/signup",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              businessName: "Service Lifecycle",
+              ownerName: "Owner",
+              email,
+              password: "auditpass123",
+              timezone: "UTC",
+              bookingSlug: slug,
+            }),
+          },
+          session
+        );
+
+        assert.equal(signup.status, 201);
+
+        const created = await requestJson<{
+          id: string;
+          name: string;
+          durationMinutes: number;
+          price: number;
+          active: boolean;
+          bufferMinutes: number;
+        }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/services`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              name: "Initial Service",
+              durationMinutes: 30,
+              price: 20,
+              active: true,
+              bufferMinutes: 5,
+            }),
+          },
+          session
+        );
+        assert.equal(created.status, 201);
+        assert.equal(created.body.active, true);
+
+        const edited = await requestJson<{
+          id: string;
+          name: string;
+          durationMinutes: number;
+          price: number;
+          active: boolean;
+          bufferMinutes: number;
+        }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/services/${created.body.id}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              name: "Updated Service",
+              durationMinutes: 45,
+              price: 35,
+              bufferMinutes: 10,
+            }),
+          },
+          session
+        );
+        assert.equal(edited.status, 200);
+        assert.equal(edited.body.id, created.body.id);
+        assert.equal(edited.body.name, "Updated Service");
+        assert.equal(edited.body.durationMinutes, 45);
+        assert.equal(edited.body.price, 35);
+        assert.equal(edited.body.bufferMinutes, 10);
+        assert.equal(edited.body.active, true);
+
+        const deactivated = await requestJson<{ id: string; active: boolean }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/services/${created.body.id}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ active: false }),
+          },
+          session
+        );
+        assert.equal(deactivated.status, 200);
+        assert.equal(deactivated.body.id, created.body.id);
+        assert.equal(deactivated.body.active, false);
+
+        const reactivated = await requestJson<{ id: string; active: boolean }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/services/${created.body.id}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ active: true }),
+          },
+          session
+        );
+        assert.equal(reactivated.status, 200);
+        assert.equal(reactivated.body.id, created.body.id);
+        assert.equal(reactivated.body.active, true);
+
+        const servicesBeforeDelete = await requestJson<Array<{ id: string; active: boolean }>>(
+          running.port,
+          `/api/business/${signup.body.businessId}/services`,
+          { method: "GET" },
+          session
+        );
+        assert.equal(servicesBeforeDelete.status, 200);
+        assert.equal(servicesBeforeDelete.body.some((service) => service.id === created.body.id), true);
+
+        const deleted = await fetch(
+          buildUrl(running.port, `/api/business/${signup.body.businessId}/services/${created.body.id}`),
+          {
+            method: "DELETE",
+            headers: { Cookie: session.cookie },
+            redirect: "manual",
+          }
+        );
+        assert.equal(deleted.status, 204);
+
+        const servicesAfterDelete = await requestJson<Array<{ id: string }>>(
+          running.port,
+          `/api/business/${signup.body.businessId}/services`,
+          { method: "GET" },
+          session
+        );
+        assert.equal(servicesAfterDelete.status, 200);
+        assert.equal(servicesAfterDelete.body.some((service) => service.id === created.body.id), false);
+      } finally {
+        await running.stop();
+      }
+    },
+  },
+
+  {
     name: "weekly availability round-trip: updateWeeklyAvailability persists and listWeeklyAvailability reads back correctly",
     run: async () => {
       const store = await BookingStore.create();
