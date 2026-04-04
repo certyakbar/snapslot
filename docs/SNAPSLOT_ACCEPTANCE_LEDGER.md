@@ -48,7 +48,7 @@ This ledger records verification truth against the Constitution. Statuses are PA
 | Error handling | UNVERIFIED | Requires proof of meaningful error responses across all flows. |
 | Validation coverage | UNVERIFIED | Requires proof of validation covering all constraints and required flows. |
 | Booking state model | PASS | Proven by commit `39c0b27` on `origin/main`: `bookingCore.ts` exports `BookingStatus` as `"pending_payment" | "confirmed" | "rescheduled" | "cancelled" | "completed" | "no_show"`, matching all six states in Constitution §9 exactly. `Persistence.ts` and `bookingStore.ts` updated to match. |
-| Notifications | UNVERIFIED | Constitution § Notifications; later-phase, pending implementation proof. |
+| Notifications | PASS | Proven by `tests/notifications.test.ts` (commit `43ee6e6`, `PASS 4 tests` on `origin/main`): `sendBookingConfirmation`, `sendRescheduleNotification`, and `sendCancellationNotification` each send exactly 2 emails (customer + business) with correct recipients and subjects; fire-and-forget safety proven — notification failure does not propagate to API caller. Routes wired in `server.ts` for booking creation, cancellation, and reschedule events. Payment notifications (payment_required, payment_received, refund_issued) are stubbed pending Task 6 payments implementation. |
 | Payments & deposits | UNVERIFIED | Constitution § Payments; core phase per Constitution, pending implementation proof. |
 | Subscription & billing | UNVERIFIED | Constitution § Subscription & Billing; later-phase, pending implementation proof. |
 | Payment history | UNVERIFIED | Constitution § Billing history; later-phase, pending implementation proof. |
