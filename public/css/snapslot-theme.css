@@ -84,7 +84,15 @@ body.snapslot-booking {
     linear-gradient(180deg, #f7f8fc 0%, #f3f6fb 58%, #fbfcfe 100%);
 }
 
-body.snapslot-auth .page,
+body.snapslot-auth .page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 18px;
+  position: relative;
+  isolation: isolate;
+}
+
 body.snapslot-admin .page,
 body.snapslot-booking .page {
   position: relative;
@@ -170,6 +178,19 @@ body.snapslot-auth input,
 body.snapslot-auth button,
 body.snapslot-auth .primary-button {
   width: 100%;
+}
+
+body.snapslot-admin input,
+body.snapslot-admin textarea,
+body.snapslot-admin button,
+body.snapslot-booking input,
+body.snapslot-booking textarea,
+body.snapslot-booking button {
+  width: 100%;
+}
+
+textarea {
+  resize: vertical;
 }
 
 body.snapslot-auth .hero-point {
@@ -770,6 +791,12 @@ table tbody tr:not(.blocked-time-loading-row):hover td {
 .window-row,
 table tbody tr:not(.blocked-time-loading-row) {
   animation: snapslot-fade-in var(--motion-slow) var(--motion-ease);
+}
+
+@media (max-width: 920px) {
+  body.snapslot-auth .shell {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
