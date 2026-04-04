@@ -210,6 +210,37 @@
         </div>
       </section>
 
+      <section id="booking-qr-panel" class="panel">
+        <div class="section-header">
+          <div>
+            <h2>Booking QR Code</h2>
+            <p class="panel-intro">Scan or share this QR code to open your public booking page directly.</p>
+          </div>
+        </div>
+
+        <div class="grid two-col">
+          <div class="hero-card">
+            <img
+              id="booking-qr-image"
+              src=""
+              alt="Booking QR code"
+              width="200"
+              height="200"
+              hidden
+            />
+            <div id="booking-qr-loading" class="message" aria-live="polite">Loading booking QR code...</div>
+          </div>
+          <div class="hero-card">
+            <strong>Booking link</strong>
+            <div class="detail-list">
+              <a id="booking-qr-link" class="mono" href="#" target="_blank" rel="noreferrer">Loading...</a>
+              <span>Use this link in print, email, or social posts for direct bookings.</span>
+            </div>
+            <div id="booking-qr-message" class="message" aria-live="polite"></div>
+          </div>
+        </div>
+      </section>
+
       <section id="services-panel" class="panel">
         <div class="section-header">
           <div>
@@ -373,5 +404,40 @@
     </main>
 
     <script type="module" src="/js/admin-ui.js"></script>
+    <script type="module">
+      const qrBusinessId = window.location.pathname.split("/").filter(Boolean)[1] || "";
+      const qrImage = document.getElementById("booking-qr-image");
+      const qrLink = document.getElementById("booking-qr-link");
+      const qrLoading = document.getElementById("booking-qr-loading");
+      const qrMessage = document.getElementById("booking-qr-message");
+
+      async function loadBookingQrCode() {
+        if (!qrBusinessId) {
+          qrLoading.textContent = "Booking QR code is unavailable because the business id is missing.";
+          return;
+        }
+
+        try {
+          const response = await fetch(`/api/business/${encodeURIComponent(qrBusinessId)}/qr`);
+          const payload = await response.json();
+
+          if (!response.ok) {
+            throw new Error(payload?.error || "Failed to load booking QR code.");
+          }
+
+          qrImage.src = payload.qrUrl;
+          qrImage.alt = `Booking QR code for ${payload.bookingUrl}`;
+          qrImage.hidden = false;
+          qrLink.href = payload.bookingUrl;
+          qrLink.textContent = payload.bookingUrl;
+          qrLoading.hidden = true;
+        } catch (error) {
+          qrLoading.textContent = "Booking QR code is unavailable right now.";
+          qrMessage.textContent = error instanceof Error ? error.message : "Booking QR code could not be loaded.";
+        }
+      }
+
+      loadBookingQrCode().catch(console.error);
+    </script>
   </body>
 </html>

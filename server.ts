@@ -229,6 +229,18 @@ async function startServer(): Promise<void> {
     }
   });
 
+  app.get("/api/business/:businessId/qr", (req: Request<BusinessParams>, res: Response) => {
+    try {
+      assertBusinessSession(req, res, req.params.businessId);
+      const business = store.getBusinessView(req.params.businessId);
+      const bookingUrl = `${req.protocol}://${req.get("host")}/booking/${business.bookingPageSlug}`;
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(bookingUrl)}`;
+      res.json({ qrUrl, bookingUrl });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
   app.get("/api/booking-page/:slug", (req: Request<BookingPageParams>, res: Response) => {
     try {
       const slug = sanitizeSlug(req.params.slug);
