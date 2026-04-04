@@ -10,7 +10,7 @@ import {
   sendBookingConfirmation,
   sendCancellationNotification,
   sendRescheduleNotification,
-} from "./notificationService.js";
+} from "./notificationService.ts";
 
 type SignupBody = {
   businessName: string;
@@ -772,7 +772,7 @@ function parseDateQuery(value: unknown): Date {
   return date;
 }
 
-function parseServiceIds(value: unknown): string[] {
+function parseServiceIds(value: unknown): string[]  {
   if (Array.isArray(value)) {
     return value.map(String).filter(Boolean);
   }

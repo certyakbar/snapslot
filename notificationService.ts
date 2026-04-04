@@ -1,4 +1,5 @@
-import nodemailer, { Transporter } from "nodemailer";
+import nodemailer from "nodemailer";
+import type { Transporter } from "nodemailer";
 
 // Default transport reads from environment variables.
 // In tests, call setMailTransport() to inject a capturing transport.
