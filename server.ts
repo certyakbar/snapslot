@@ -5,6 +5,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { hashPassword, verifyPassword } from "./auth.ts";
 import { BookingStore } from "./bookingStore.ts";
+import {
+  sendBookingConfirmation,
+  sendCancellationNotification,
+  sendRescheduleNotification,
+} from "./notificationService.js";
 
 type SignupBody = {
   businessName: string;
@@ -285,6 +290,15 @@ async function startServer(): Promise<void> {
         },
       });
 
+      sendBookingConfirmation({
+        customerEmail: booking.customer.email ?? "",
+        businessEmail: business.ownerEmail,
+        businessName: business.name,
+        customerName: booking.customer.name,
+        serviceName: booking.services.map((s) => s.name).join(", "),
+        startTime: booking.start.toISOString(),
+      }).catch(console.error);
+
       res.status(201).json(booking);
     } catch (error) {
       handleError(res, error);
@@ -483,6 +497,7 @@ async function startServer(): Promise<void> {
   app.post("/api/business/:businessId/bookings", async (req: Request<BusinessParams>, res: Response) => {
     try {
       assertBusinessSession(req, res, req.params.businessId);
+      const business = store.getBusiness(req.params.businessId);
       const booking = await store.createBooking({
         businessId: req.params.businessId,
         requestedStart: new Date(req.body.requestedStart),
@@ -495,6 +510,15 @@ async function startServer(): Promise<void> {
         },
       });
 
+      sendBookingConfirmation({
+        customerEmail: booking.customer.email ?? "",
+        businessEmail: business.ownerEmail,
+        businessName: business.name,
+        customerName: booking.customer.name,
+        serviceName: booking.services.map((s) => s.name).join(", "),
+        startTime: booking.start.toISOString(),
+      }).catch(console.error);
+
       res.status(201).json(booking);
     } catch (error) {
       handleError(res, error);
@@ -506,7 +530,15 @@ async function startServer(): Promise<void> {
     async (req: Request<BookingParams>, res: Response) => {
       try {
         assertBusinessSession(req, res, req.params.businessId);
+        const business = store.getBusiness(req.params.businessId);
         const booking = await store.cancelBooking(req.params.businessId, req.params.bookingId);
+        sendCancellationNotification({
+          customerEmail: booking.customer.email ?? "",
+          businessEmail: business.ownerEmail,
+          businessName: business.name,
+          customerName: booking.customer.name,
+          serviceName: booking.services.map((s) => s.name).join(", "),
+        }).catch(console.error);
         res.json(booking);
       } catch (error) {
         handleError(res, error);
@@ -519,11 +551,20 @@ async function startServer(): Promise<void> {
     async (req: Request<BookingParams>, res: Response) => {
       try {
         assertBusinessSession(req, res, req.params.businessId);
+        const business = store.getBusiness(req.params.businessId);
         const booking = await store.rescheduleBooking(
           req.params.businessId,
           req.params.bookingId,
           new Date(req.body.requestedStart)
         );
+        sendRescheduleNotification({
+          customerEmail: booking.customer.email ?? "",
+          businessEmail: business.ownerEmail,
+          businessName: business.name,
+          customerName: booking.customer.name,
+          serviceName: booking.services.map((s) => s.name).join(", "),
+          newStartTime: booking.start.toISOString(),
+        }).catch(console.error);
         res.json(booking);
       } catch (error) {
         handleError(res, error);
