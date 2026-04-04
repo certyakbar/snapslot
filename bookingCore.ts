@@ -1,4 +1,4 @@
-export type BookingStatus = "pending" | "confirmed" | "cancelled" | "completed";
+export type BookingStatus = "pending_payment" | "confirmed" | "rescheduled" | "cancelled" | "completed" | "no_show";
 
 export interface Service {
   id: string;
@@ -284,7 +284,7 @@ export function conflictsWithExistingTime(
   blockedTimes: BlockedTime[]
 ): boolean {
   const activeBookings = bookings.filter(
-    (booking) => booking.status === "confirmed" || booking.status === "pending"
+    (booking) => booking.status === "confirmed" || booking.status === "pending_payment"
   );
 
   const bookingConflict = activeBookings.some((booking) =>

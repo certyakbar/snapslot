@@ -682,7 +682,7 @@ export class BookingStore {
 
   private listActiveBookings(businessId: string): ExistingBooking[] {
     return (this.state.bookings.get(businessId) ?? []).filter(
-      (booking) => booking.status === "pending" || booking.status === "confirmed"
+      (booking) => booking.status === "pending_payment" || booking.status === "confirmed"
     );
   }
 

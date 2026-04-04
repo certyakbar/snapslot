@@ -50,7 +50,7 @@ export interface PersistedBookingRecord {
   totalDurationMinutes: number;
   start: string;
   end: string;
-  status: "pending" | "confirmed" | "cancelled" | "completed";
+  status: "pending_payment" | "confirmed" | "rescheduled" | "cancelled" | "completed" | "no_show";
   createdAt: string;
   updatedAt: string;
 }
