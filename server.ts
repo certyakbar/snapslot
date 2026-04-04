@@ -514,6 +514,23 @@ async function startServer(): Promise<void> {
     }
   );
 
+  app.patch(
+    "/api/business/:businessId/bookings/:bookingId/reschedule",
+    async (req: Request<BookingParams>, res: Response) => {
+      try {
+        assertBusinessSession(req, res, req.params.businessId);
+        const booking = await store.rescheduleBooking(
+          req.params.businessId,
+          req.params.bookingId,
+          new Date(req.body.requestedStart)
+        );
+        res.json(booking);
+      } catch (error) {
+        handleError(res, error);
+      }
+    }
+  );
+
   app.get("/booking/:slug", (_req: Request, res: Response) => {
     res.sendFile(path.join(__dirname, "public", "index.html"));
   });

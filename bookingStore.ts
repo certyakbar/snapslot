@@ -600,6 +600,74 @@ export class BookingStore {
     return this.attachServiceSnapshots(booking, services);
   }
 
+  async rescheduleBooking(
+    businessId: string,
+    bookingId: string,
+    newStart: Date
+  ): Promise<BookingDetails> {
+    return this.withBusinessBookingCreationLock(businessId, async () => {
+      const business = this.getBusiness(businessId);
+
+      if (!(newStart instanceof Date) || Number.isNaN(newStart.getTime())) {
+        throw new Error("Requested reschedule time is invalid.");
+      }
+
+      if (newStart.getTime() <= Date.now()) {
+        throw new Error("Requested reschedule time must be in the future.");
+      }
+
+      const nextState = this.cloneState();
+      const bookings = nextState.bookings.get(businessId) ?? [];
+      const booking = bookings.find((item) => item.id === bookingId);
+
+      if (!booking) {
+        throw new Error(`Booking '${bookingId}' was not found.`);
+      }
+
+      if (
+        booking.status === "cancelled" ||
+        booking.status === "completed" ||
+        booking.status === "no_show"
+      ) {
+        throw new Error("Only active bookings can be rescheduled.");
+      }
+
+      const services = this.resolveRequestedServices(businessId, booking.serviceIds);
+      const computation = buildBookingComputation(newStart, services);
+
+      const availabilityWindows = this.resolveAvailabilityForInstant(businessId, newStart);
+      if (availabilityWindows.length === 0) {
+        throw new Error("No working availability exists for the selected date.");
+      }
+
+      const fitsAvailability = availabilityWindows.some((window) =>
+        this.fitsWithinAvailabilityWindow(computation.start, computation.end, window, business.timezone)
+      );
+
+      if (!fitsAvailability) {
+        throw new Error("Reschedule time does not fit within business working hours.");
+      }
+
+      const otherActiveBookings = this.listActiveBookings(businessId).filter((item) => item.id !== bookingId);
+      const blockedTimes = this.listBlockedTimes(businessId);
+
+      if (conflictsWithExistingTime(computation.start, computation.end, otherActiveBookings, blockedTimes)) {
+        throw new Error("Selected reschedule time is not available.");
+      }
+
+      booking.start = computation.start;
+      booking.end = computation.end;
+      booking.totalDurationMinutes = computation.totalDurationMinutes;
+      booking.status = "rescheduled";
+      booking.updatedAt = new Date();
+
+      await this.persistState(nextState);
+
+      const currentServices = nextState.services.get(businessId) ?? [];
+      return this.attachServiceSnapshots(booking, currentServices);
+    });
+  }
+
   private assertValidService(service: Service): void {
     if (!service.name) throw new Error("Service name is required.");
     if (!Number.isInteger(service.durationMinutes) || service.durationMinutes <= 0) {
@@ -682,7 +750,10 @@ export class BookingStore {
 
   private listActiveBookings(businessId: string): ExistingBooking[] {
     return (this.state.bookings.get(businessId) ?? []).filter(
-      (booking) => booking.status === "pending_payment" || booking.status === "confirmed"
+      (booking) =>
+        booking.status === "pending_payment" ||
+        booking.status === "confirmed" ||
+        booking.status === "rescheduled"
     );
   }
 

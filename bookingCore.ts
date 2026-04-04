@@ -284,7 +284,10 @@ export function conflictsWithExistingTime(
   blockedTimes: BlockedTime[]
 ): boolean {
   const activeBookings = bookings.filter(
-    (booking) => booking.status === "confirmed" || booking.status === "pending_payment"
+    (booking) =>
+      booking.status === "confirmed" ||
+      booking.status === "pending_payment" ||
+      booking.status === "rescheduled"
   );
 
   const bookingConflict = activeBookings.some((booking) =>

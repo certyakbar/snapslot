@@ -699,6 +699,140 @@ const tests: TestCase[] = [
       }
     },
   },
+  {
+    name: "reschedule transitions status and frees the original slot",
+    run: async () => {
+      const running = await startServerForTest();
+
+      try {
+        const session: CookieSession = { cookie: "" };
+        const slug = `reschedule-proof-${Math.random().toString(36).slice(2, 10)}`;
+        const email = `${slug}@example.com`;
+        const monday = 1;
+        const bookingDate = "2099-04-06";
+        const originalStart = "2099-04-06T09:00:00.000Z";
+        const newStart = "2099-04-06T11:00:00.000Z";
+
+        const signup = await requestJson<{ businessId: string }>(
+          running.port,
+          "/api/signup",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              businessName: "Reschedule Proof",
+              ownerName: "Owner",
+              email,
+              password: "auditpass123",
+              timezone: "UTC",
+              bookingSlug: slug,
+            }),
+          },
+          session
+        );
+        assert.equal(signup.status, 201);
+
+        const service = await requestJson<{ id: string }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/services`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              name: "Reschedule Service",
+              durationMinutes: 60,
+              price: 50,
+              bufferMinutes: 0,
+            }),
+          },
+          session
+        );
+        assert.equal(service.status, 201);
+
+        const availability = await requestJson<Array<{ dayOfWeek: number }>>(
+          running.port,
+          `/api/business/${signup.body.businessId}/availability`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              availability: [
+                { dayOfWeek: monday, startMinutes: 9 * 60, endMinutes: 17 * 60, active: true },
+              ],
+            }),
+          },
+          session
+        );
+        assert.equal(availability.status, 200);
+
+        const booking = await requestJson<{ id: string; status: string }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/bookings`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              requestedStart: originalStart,
+              serviceIds: [service.body.id],
+              customer: {
+                name: "Reschedule Customer",
+                phone: "07000000000",
+                email: "reschedule@example.com",
+              },
+            }),
+          },
+          session
+        );
+        assert.equal(booking.status, 201);
+        assert.equal(booking.body.status, "confirmed");
+
+        const rescheduled = await requestJson<{ id: string; status: string; start: string }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/bookings/${booking.body.id}/reschedule`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              requestedStart: newStart,
+            }),
+          },
+          session
+        );
+        assert.equal(rescheduled.status, 200);
+        assert.equal(rescheduled.body.id, booking.body.id);
+        assert.equal(rescheduled.body.status, "rescheduled");
+        assert.equal(rescheduled.body.start, newStart);
+
+        const slots = await requestJson<Array<{ start: string }>>(
+          running.port,
+          `/api/business/${signup.body.businessId}/slots?date=${bookingDate}&serviceIds=${service.body.id}&stepMinutes=60`,
+          { method: "GET" },
+          session
+        );
+        assert.equal(slots.status, 200);
+        assert.equal(slots.body.some((slot) => slot.start === originalStart), true);
+
+        const cancelled = await requestJson<{ id: string; status: string }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/bookings/${booking.body.id}/cancel`,
+          { method: "PATCH" },
+          session
+        );
+        assert.equal(cancelled.status, 200);
+        assert.equal(cancelled.body.status, "cancelled");
+
+        const cancelledReschedule = await requestJson<{ error: string }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/bookings/${booking.body.id}/reschedule`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              requestedStart: "2099-04-06T13:00:00.000Z",
+            }),
+          },
+          session
+        );
+        assert.equal(cancelledReschedule.status, 400);
+      } finally {
+        await running.stop();
+      }
+    },
+  },
 ];
 
 let failed = 0;
