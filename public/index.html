@@ -212,5 +212,46 @@
     </main>
 
     <script type="module" src="/js/booking-ui.js"></script>
+    <script type="module">
+      import { setStatusMessage } from "/js/ui-copy.js";
+
+      const bookingMessage = document.getElementById("booking-message");
+      const originalFetch = window.fetch.bind(window);
+
+      function isPublicBookingCreateRequest(input, init) {
+        const method = String(init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+        if (method !== "POST") {
+          return false;
+        }
+
+        const rawUrl = typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
+        const url = new URL(rawUrl, window.location.origin);
+        return /^\/api\/booking-page\/[^/]+\/bookings$/.test(url.pathname);
+      }
+
+      window.fetch = async (input, init) => {
+        const response = await originalFetch(input, init);
+
+        if (response.ok && isPublicBookingCreateRequest(input, init)) {
+          response
+            .clone()
+            .json()
+            .then((payload) => {
+              if (payload?.paymentStatus === "pending") {
+                setTimeout(() => {
+                  setStatusMessage(
+                    bookingMessage,
+                    "Booking received. A deposit is required to confirm your appointment. The business will contact you with payment details.",
+                    "success"
+                  );
+                }, 0);
+              }
+            })
+            .catch(() => {});
+        }
+
+        return response;
+      };
+    </script>
   </body>
 </html>

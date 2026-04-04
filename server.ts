@@ -5,10 +5,14 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { hashPassword, verifyPassword } from "./auth.ts";
 import { BookingStore } from "./bookingStore.ts";
+import type { PaymentConfig, UpdatePaymentStatusInput } from "./bookingStore.ts";
 import { HttpError } from "./errors.ts";
 import {
   sendBookingConfirmation,
   sendCancellationNotification,
+  sendPaymentReceived,
+  sendPaymentRequired,
+  sendRefundIssued,
   sendRescheduleNotification,
 } from "./notificationService.ts";
 
@@ -301,14 +305,25 @@ async function startServer(): Promise<void> {
         },
       });
 
-      sendBookingConfirmation({
-        customerEmail: booking.customer.email ?? "",
-        businessEmail: business.ownerEmail,
-        businessName: business.name,
-        customerName: booking.customer.name,
-        serviceName: booking.services.map((s) => s.name).join(", "),
-        startTime: booking.start.toISOString(),
-      }).catch(console.error);
+      if (booking.paymentStatus === "pending") {
+        sendPaymentRequired({
+          customerEmail: booking.customer.email ?? "",
+          businessEmail: business.ownerEmail,
+          businessName: business.name,
+          customerName: booking.customer.name,
+          serviceName: booking.services.map((s) => s.name).join(", "),
+          depositAmount: booking.depositAmount,
+        }).catch(console.error);
+      } else {
+        sendBookingConfirmation({
+          customerEmail: booking.customer.email ?? "",
+          businessEmail: business.ownerEmail,
+          businessName: business.name,
+          customerName: booking.customer.name,
+          serviceName: booking.services.map((s) => s.name).join(", "),
+          startTime: booking.start.toISOString(),
+        }).catch(console.error);
+      }
 
       res.status(201).json(booking);
     } catch (error) {
@@ -320,6 +335,31 @@ async function startServer(): Promise<void> {
     try {
       assertBusinessSession(req, res, req.params.businessId);
       res.json(store.getBusinessView(req.params.businessId));
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.get("/api/business/:businessId/payment-config", (req: Request<BusinessParams>, res: Response) => {
+    try {
+      assertBusinessSession(req, res, req.params.businessId);
+      const business = store.getBusinessView(req.params.businessId);
+      res.json(business.paymentConfig);
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.put("/api/business/:businessId/payment-config", async (req: Request<BusinessParams>, res: Response) => {
+    try {
+      assertBusinessSession(req, res, req.params.businessId);
+      const nextConfig: PaymentConfig = {
+        depositEnabled: Boolean(req.body.depositEnabled),
+        depositType: req.body.depositType === "percentage" ? "percentage" : "fixed",
+        depositAmount: Number(req.body.depositAmount ?? 0),
+      };
+      const config = await store.updatePaymentConfig(req.params.businessId, nextConfig);
+      res.json(config);
     } catch (error) {
       handleError(res, error);
     }
@@ -521,14 +561,25 @@ async function startServer(): Promise<void> {
         },
       });
 
-      sendBookingConfirmation({
-        customerEmail: booking.customer.email ?? "",
-        businessEmail: business.ownerEmail,
-        businessName: business.name,
-        customerName: booking.customer.name,
-        serviceName: booking.services.map((s) => s.name).join(", "),
-        startTime: booking.start.toISOString(),
-      }).catch(console.error);
+      if (booking.paymentStatus === "pending") {
+        sendPaymentRequired({
+          customerEmail: booking.customer.email ?? "",
+          businessEmail: business.ownerEmail,
+          businessName: business.name,
+          customerName: booking.customer.name,
+          serviceName: booking.services.map((s) => s.name).join(", "),
+          depositAmount: booking.depositAmount,
+        }).catch(console.error);
+      } else {
+        sendBookingConfirmation({
+          customerEmail: booking.customer.email ?? "",
+          businessEmail: business.ownerEmail,
+          businessName: business.name,
+          customerName: booking.customer.name,
+          serviceName: booking.services.map((s) => s.name).join(", "),
+          startTime: booking.start.toISOString(),
+        }).catch(console.error);
+      }
 
       res.status(201).json(booking);
     } catch (error) {
@@ -576,6 +627,45 @@ async function startServer(): Promise<void> {
           serviceName: booking.services.map((s) => s.name).join(", "),
           newStartTime: booking.start.toISOString(),
         }).catch(console.error);
+        res.json(booking);
+      } catch (error) {
+        handleError(res, error);
+      }
+    }
+  );
+
+  app.patch(
+    "/api/business/:businessId/bookings/:bookingId/payment",
+    async (req: Request<BookingParams>, res: Response) => {
+      try {
+        assertBusinessSession(req, res, req.params.businessId);
+        const business = store.getBusiness(req.params.businessId);
+        const update: UpdatePaymentStatusInput = {
+          businessId: req.params.businessId,
+          bookingId: req.params.bookingId,
+          paymentStatus: req.body.paymentStatus,
+        };
+        const booking = await store.updateBookingPaymentStatus(update);
+
+        if (booking.paymentStatus === "paid") {
+          sendPaymentReceived({
+            customerEmail: booking.customer.email ?? "",
+            businessEmail: business.ownerEmail,
+            businessName: business.name,
+            customerName: booking.customer.name,
+            serviceName: booking.services.map((s) => s.name).join(", "),
+            depositAmount: booking.depositAmount,
+          }).catch(console.error);
+        } else if (booking.paymentStatus === "refunded" || booking.paymentStatus === "partially_refunded") {
+          sendRefundIssued({
+            customerEmail: booking.customer.email ?? "",
+            businessEmail: business.ownerEmail,
+            businessName: business.name,
+            customerName: booking.customer.name,
+            serviceName: booking.services.map((s) => s.name).join(", "),
+          }).catch(console.error);
+        }
+
         res.json(booking);
       } catch (error) {
         handleError(res, error);

@@ -1,5 +1,13 @@
 export type BookingStatus = "pending_payment" | "confirmed" | "rescheduled" | "cancelled" | "completed" | "no_show";
 
+export type PaymentStatus =
+  | "not_required"
+  | "pending"
+  | "paid"
+  | "failed"
+  | "refunded"
+  | "partially_refunded";
+
 export interface Service {
   id: string;
   name: string;

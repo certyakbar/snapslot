@@ -10,6 +10,9 @@ export interface PersistedBusinessProfile {
   passwordSalt: string;
   timezone: string;
   bookingPageSlug: string;
+  depositEnabled: boolean;
+  depositType: "fixed" | "percentage";
+  depositAmount: number;
 }
 
 export interface PersistedService {
@@ -48,6 +51,8 @@ export interface PersistedBookingRecord {
   customer: PersistedCustomerDetails;
   serviceIds: string[];
   totalDurationMinutes: number;
+  paymentStatus: "not_required" | "pending" | "paid" | "failed" | "refunded" | "partially_refunded";
+  depositAmount: number;
   start: string;
   end: string;
   status: "pending_payment" | "confirmed" | "rescheduled" | "cancelled" | "completed" | "no_show";
@@ -93,11 +98,27 @@ export async function readStoreFile(): Promise<PersistedStoreState> {
   const parsed = JSON.parse(raw) as Partial<PersistedStoreState>;
 
   return {
-    businesses: Array.isArray(parsed.businesses) ? parsed.businesses : [],
+    businesses: Array.isArray(parsed.businesses)
+      ? parsed.businesses.map((b: any) => ({
+          ...b,
+          depositEnabled: b.depositEnabled ?? false,
+          depositType: b.depositType ?? "fixed",
+          depositAmount: b.depositAmount ?? 0,
+        }))
+      : [],
     servicesByBusinessId: parsed.servicesByBusinessId ?? {},
     availabilityByBusinessId: parsed.availabilityByBusinessId ?? {},
     blockedTimesByBusinessId: parsed.blockedTimesByBusinessId ?? {},
-    bookingsByBusinessId: parsed.bookingsByBusinessId ?? {},
+    bookingsByBusinessId: Object.fromEntries(
+      Object.entries(parsed.bookingsByBusinessId ?? {}).map(([id, bookings]) => [
+        id,
+        (bookings as any[]).map((b) => ({
+          ...b,
+          paymentStatus: b.paymentStatus ?? "not_required",
+          depositAmount: b.depositAmount ?? 0,
+        })),
+      ])
+    ),
   };
 }
 

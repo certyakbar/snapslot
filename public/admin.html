@@ -203,10 +203,52 @@
         </div>
 
         <div class="quick-links" aria-label="Dashboard quick links">
+          <a href="#payment-settings-panel">Payment settings</a>
+          <a href="#booking-qr-panel">Booking QR</a>
           <a href="#services-panel">Services</a>
           <a href="#availability-panel">Availability</a>
           <a href="#blocked-times-panel">Blocked times</a>
           <a href="#bookings-panel">Bookings</a>
+        </div>
+      </section>
+
+      <section id="payment-settings-panel" class="panel">
+        <div class="section-header">
+          <div>
+            <h2>Payment Settings</h2>
+            <p class="panel-intro">Configure whether bookings require a deposit before they can be fully confirmed.</p>
+          </div>
+        </div>
+
+        <div class="grid">
+          <label>
+            <input id="payment-deposit-enabled" type="checkbox" />
+            Enable deposit requirement
+          </label>
+
+          <div class="field-grid">
+            <fieldset>
+              <legend>Deposit type</legend>
+              <label>
+                <input type="radio" name="payment-deposit-type" value="fixed" checked />
+                Fixed amount
+              </label>
+              <label>
+                <input type="radio" name="payment-deposit-type" value="percentage" />
+                Percentage of service price
+              </label>
+            </fieldset>
+
+            <div>
+              <label id="payment-deposit-amount-label" for="payment-deposit-amount">Amount (pence)</label>
+              <input id="payment-deposit-amount" type="number" min="0" step="1" value="0" />
+            </div>
+          </div>
+
+          <div class="action-row">
+            <button id="save-payment-config-button" type="button" class="small">Save payment settings</button>
+          </div>
+          <div id="payment-config-message" class="message" aria-live="polite"></div>
         </div>
       </section>
 
@@ -382,7 +424,7 @@
         <div class="section-header">
           <div>
             <h2>Bookings</h2>
-            <p class="panel-intro">Review customer details, booked services, timing, notes, and booking status.</p>
+            <p class="panel-intro">Review customer details, booked services, timing, booking status, and payment progress.</p>
           </div>
         </div>
 
@@ -405,11 +447,317 @@
 
     <script type="module" src="/js/admin-ui.js"></script>
     <script type="module">
+      import { formatDateTimeInTimeZone, formatTimeInTimeZone } from "/js/timezone.js";
+      import { clearStatusMessage, setStatusMessage } from "/js/ui-copy.js";
+
       const qrBusinessId = window.location.pathname.split("/").filter(Boolean)[1] || "";
       const qrImage = document.getElementById("booking-qr-image");
       const qrLink = document.getElementById("booking-qr-link");
       const qrLoading = document.getElementById("booking-qr-loading");
       const qrMessage = document.getElementById("booking-qr-message");
+      const paymentEnabledInput = document.getElementById("payment-deposit-enabled");
+      const paymentTypeInputs = Array.from(document.querySelectorAll("input[name='payment-deposit-type']"));
+      const paymentAmountInput = document.getElementById("payment-deposit-amount");
+      const paymentAmountLabel = document.getElementById("payment-deposit-amount-label");
+      const savePaymentConfigButton = document.getElementById("save-payment-config-button");
+      const paymentConfigMessage = document.getElementById("payment-config-message");
+      const bookingsTableBody = document.getElementById("bookings-table-body");
+      const bookingMessage = document.getElementById("booking-message");
+
+      let businessContext = null;
+      let bookingRefreshScheduled = false;
+      let bookingRenderInProgress = false;
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      async function requestJson(pathname, init = {}) {
+        const response = await fetch(pathname, init);
+        let payload = {};
+
+        try {
+          payload = await response.json();
+        } catch {
+          payload = {};
+        }
+
+        if (!response.ok) {
+          throw new Error(payload?.error || "Request failed.");
+        }
+
+        return payload;
+      }
+
+      async function loadBusinessContext() {
+        if (!businessContext && qrBusinessId) {
+          businessContext = await requestJson(`/api/business/${encodeURIComponent(qrBusinessId)}`);
+        }
+
+        return businessContext;
+      }
+
+      function getSelectedDepositType() {
+        return paymentTypeInputs.find((input) => input.checked)?.value === "percentage" ? "percentage" : "fixed";
+      }
+
+      function syncPaymentAmountLabel() {
+        const depositType = getSelectedDepositType();
+        paymentAmountLabel.textContent =
+          depositType === "percentage" ? "Percentage (1-100)" : "Amount (pence)";
+        paymentAmountInput.min = depositType === "percentage" ? "1" : "0";
+        paymentAmountInput.max = depositType === "percentage" ? "100" : "";
+      }
+
+      async function loadPaymentConfig() {
+        if (!qrBusinessId) {
+          setStatusMessage(paymentConfigMessage, "Payment settings are unavailable because the business id is missing.", "error");
+          return;
+        }
+
+        try {
+          const config = await requestJson(`/api/business/${encodeURIComponent(qrBusinessId)}/payment-config`);
+          paymentEnabledInput.checked = Boolean(config.depositEnabled);
+          paymentTypeInputs.forEach((input) => {
+            input.checked = input.value === (config.depositType === "percentage" ? "percentage" : "fixed");
+          });
+          paymentAmountInput.value = String(Number(config.depositAmount ?? 0));
+          syncPaymentAmountLabel();
+          clearStatusMessage(paymentConfigMessage);
+        } catch (error) {
+          setStatusMessage(
+            paymentConfigMessage,
+            error instanceof Error ? error.message : "Payment settings could not be loaded.",
+            "error"
+          );
+        }
+      }
+
+      async function savePaymentConfig() {
+        if (!qrBusinessId) {
+          setStatusMessage(paymentConfigMessage, "Payment settings are unavailable because the business id is missing.", "error");
+          return;
+        }
+
+        const originalLabel = savePaymentConfigButton.textContent;
+        savePaymentConfigButton.disabled = true;
+        savePaymentConfigButton.textContent = "Saving...";
+
+        try {
+          const payload = {
+            depositEnabled: paymentEnabledInput.checked,
+            depositType: getSelectedDepositType(),
+            depositAmount: Number(paymentAmountInput.value || 0),
+          };
+
+          await requestJson(`/api/business/${encodeURIComponent(qrBusinessId)}/payment-config`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          setStatusMessage(paymentConfigMessage, "Payment settings saved.", "success");
+        } catch (error) {
+          setStatusMessage(
+            paymentConfigMessage,
+            error instanceof Error ? error.message : "Payment settings could not be saved.",
+            "error"
+          );
+        } finally {
+          savePaymentConfigButton.disabled = false;
+          savePaymentConfigButton.textContent = originalLabel;
+        }
+      }
+
+      function buildBookingActions(booking) {
+        const actions = [];
+
+        if (booking.paymentStatus === "pending") {
+          actions.push(
+            `<button class="small" type="button" data-payment-action="mark_paid" data-payment-status="paid" data-booking-id="${booking.id}">Mark paid</button>`
+          );
+        }
+
+        if (booking.paymentStatus === "paid") {
+          actions.push(
+            `<button class="secondary small" type="button" data-payment-action="refund" data-payment-status="refunded" data-booking-id="${booking.id}">Refund</button>`
+          );
+        }
+
+        if (booking.status === "confirmed") {
+          actions.push(
+            `<button class="ghost small" type="button" data-booking-cancel="${booking.id}">Cancel</button>`
+          );
+        }
+
+        if (actions.length === 0) {
+          return "Not available";
+        }
+
+        return `<div class="table-actions">${actions.join("")}</div>`;
+      }
+
+      async function renderPaymentAwareBookings() {
+        if (!qrBusinessId) {
+          bookingsTableBody.innerHTML = `
+            <tr>
+              <td colspan="6" class="muted">Bookings are unavailable because the business id is missing.</td>
+            </tr>
+          `;
+          return;
+        }
+
+        bookingRenderInProgress = true;
+
+        try {
+          const business = await loadBusinessContext();
+          const bookings = await requestJson(`/api/business/${encodeURIComponent(qrBusinessId)}/bookings`);
+
+          if (!Array.isArray(bookings) || bookings.length === 0) {
+            bookingsTableBody.innerHTML = `
+              <tr>
+                <td colspan="6" class="muted">No bookings have been created yet.</td>
+              </tr>
+            `;
+            return;
+          }
+
+          bookingsTableBody.innerHTML = bookings
+            .map((booking) => {
+              const serviceNames = Array.isArray(booking.services)
+                ? booking.services.map((service) => service.name).join(", ")
+                : (booking.serviceIds || []).join(", ");
+              const customerEmail = booking.customer?.email ? escapeHtml(booking.customer.email) : "No email provided";
+              const customerNotes = booking.customer?.notes ? escapeHtml(booking.customer.notes) : "No notes";
+
+              return `
+                <tr>
+                  <td><strong>${escapeHtml(booking.customer?.name || "Unknown customer")}</strong></td>
+                  <td>
+                    <div class="detail-list">
+                      <span>${escapeHtml(booking.customer?.phone || "No phone provided")}</span>
+                      <span>${customerEmail}</span>
+                      <span>${customerNotes}</span>
+                    </div>
+                  </td>
+                  <td>${escapeHtml(serviceNames)}</td>
+                  <td>
+                    <div class="detail-list">
+                      <span>${formatDateTimeInTimeZone(booking.start, business?.timezone || "UTC")}</span>
+                      <span>${formatTimeInTimeZone(booking.start, business?.timezone || "UTC")} to ${formatTimeInTimeZone(booking.end, business?.timezone || "UTC")}</span>
+                      <span>${escapeHtml(business?.timezone || "")}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="detail-list">
+                      <span class="pill">${escapeHtml(booking.status)}</span>
+                      <span class="pill">${escapeHtml(booking.paymentStatus)}</span>
+                    </div>
+                  </td>
+                  <td>${buildBookingActions(booking)}</td>
+                </tr>
+              `;
+            })
+            .join("");
+        } catch (error) {
+          bookingsTableBody.innerHTML = `
+            <tr>
+              <td colspan="6" class="muted">Booking details are unavailable right now.</td>
+            </tr>
+          `;
+          setStatusMessage(
+            bookingMessage,
+            error instanceof Error ? error.message : "Booking details could not be loaded.",
+            "error"
+          );
+        } finally {
+          bookingRenderInProgress = false;
+        }
+      }
+
+      function scheduleBookingsRefresh() {
+        if (bookingRefreshScheduled) {
+          return;
+        }
+
+        bookingRefreshScheduled = true;
+        setTimeout(async () => {
+          bookingRefreshScheduled = false;
+          await renderPaymentAwareBookings();
+        }, 0);
+      }
+
+      async function updateBookingPayment(button) {
+        const bookingId = button.dataset.bookingId;
+        const action = button.dataset.paymentAction;
+        const paymentStatus = button.dataset.paymentStatus;
+
+        if (!bookingId || !action || !paymentStatus) {
+          return;
+        }
+
+        const originalLabel = button.textContent;
+        button.disabled = true;
+        button.textContent = "Saving...";
+
+        try {
+          await requestJson(`/api/business/${encodeURIComponent(qrBusinessId)}/bookings/${encodeURIComponent(bookingId)}/payment`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action, paymentStatus }),
+          });
+
+          setStatusMessage(
+            bookingMessage,
+            action === "refund" ? "Payment refunded and booking cancelled." : "Payment marked as paid.",
+            "success"
+          );
+          await renderPaymentAwareBookings();
+        } catch (error) {
+          setStatusMessage(
+            bookingMessage,
+            error instanceof Error ? error.message : "Payment status could not be updated.",
+            "error"
+          );
+        } finally {
+          button.disabled = false;
+          button.textContent = originalLabel;
+        }
+      }
+
+      async function cancelBooking(button) {
+        const bookingId = button.dataset.bookingCancel;
+
+        if (!bookingId) {
+          return;
+        }
+
+        const originalLabel = button.textContent;
+        button.disabled = true;
+        button.textContent = "Saving...";
+
+        try {
+          await requestJson(`/api/business/${encodeURIComponent(qrBusinessId)}/bookings/${encodeURIComponent(bookingId)}/cancel`, {
+            method: "PATCH",
+          });
+          setStatusMessage(bookingMessage, "Booking cancelled.", "success");
+          await renderPaymentAwareBookings();
+        } catch (error) {
+          setStatusMessage(
+            bookingMessage,
+            error instanceof Error ? error.message : "Booking could not be cancelled.",
+            "error"
+          );
+        } finally {
+          button.disabled = false;
+          button.textContent = originalLabel;
+        }
+      }
 
       async function loadBookingQrCode() {
         if (!qrBusinessId) {
@@ -437,7 +785,43 @@
         }
       }
 
+      paymentTypeInputs.forEach((input) => {
+        input.addEventListener("change", syncPaymentAmountLabel);
+      });
+      paymentEnabledInput.addEventListener("change", () => {
+        clearStatusMessage(paymentConfigMessage);
+      });
+      savePaymentConfigButton.addEventListener("click", () => {
+        savePaymentConfig().catch(console.error);
+      });
+
+      bookingsTableBody.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) {
+          return;
+        }
+
+        if (target.dataset.paymentAction) {
+          updateBookingPayment(target).catch(console.error);
+          return;
+        }
+
+        if (target.dataset.bookingCancel) {
+          cancelBooking(target).catch(console.error);
+        }
+      });
+
+      const bookingsObserver = new MutationObserver(() => {
+        if (!bookingRenderInProgress) {
+          scheduleBookingsRefresh();
+        }
+      });
+      bookingsObserver.observe(bookingsTableBody, { childList: true });
+
+      syncPaymentAmountLabel();
       loadBookingQrCode().catch(console.error);
+      loadPaymentConfig().catch(console.error);
+      scheduleBookingsRefresh();
     </script>
   </body>
 </html>

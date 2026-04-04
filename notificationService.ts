@@ -64,6 +64,49 @@ export async function sendCancellationNotification(params: {
 
 // Payment notifications: NOT IMPLEMENTED — payments feature not yet built.
 // Placeholders reserved for future Task 6 integration.
-export async function sendPaymentRequired(_params: unknown): Promise<void> { /* TODO: Task 6 */ }
-export async function sendPaymentReceived(_params: unknown): Promise<void> { /* TODO: Task 6 */ }
-export async function sendRefundIssued(_params: unknown): Promise<void> { /* TODO: Task 6 */ }
+export async function sendPaymentRequired(params: {
+  customerEmail: string;
+  businessEmail: string;
+  businessName: string;
+  customerName: string;
+  serviceName: string;
+  depositAmount: number;
+}): Promise<void> {
+  const subject = `Payment required to confirm your booking - ${params.businessName}`;
+  const body = `Your booking for ${params.serviceName} requires a deposit of GBP ${(params.depositAmount / 100).toFixed(2)} to be confirmed. Please contact ${params.businessName} to arrange payment.`;
+  await Promise.all([
+    transport.sendMail({ to: params.customerEmail, subject, text: body }),
+    transport.sendMail({ to: params.businessEmail, subject: `Payment required: ${params.customerName}`, text: body }),
+  ]);
+}
+
+export async function sendPaymentReceived(params: {
+  customerEmail: string;
+  businessEmail: string;
+  businessName: string;
+  customerName: string;
+  serviceName: string;
+  depositAmount: number;
+}): Promise<void> {
+  const subject = `Payment received - ${params.businessName}`;
+  const body = `Your deposit of GBP ${(params.depositAmount / 100).toFixed(2)} for ${params.serviceName} has been received. Your booking is confirmed.`;
+  await Promise.all([
+    transport.sendMail({ to: params.customerEmail, subject, text: body }),
+    transport.sendMail({ to: params.businessEmail, subject: `Payment received: ${params.customerName}`, text: body }),
+  ]);
+}
+
+export async function sendRefundIssued(params: {
+  customerEmail: string;
+  businessEmail: string;
+  businessName: string;
+  customerName: string;
+  serviceName: string;
+}): Promise<void> {
+  const subject = `Refund issued - ${params.businessName}`;
+  const body = `A refund has been issued for your booking of ${params.serviceName}.`;
+  await Promise.all([
+    transport.sendMail({ to: params.customerEmail, subject, text: body }),
+    transport.sendMail({ to: params.businessEmail, subject: `Refund issued: ${params.customerName}`, text: body }),
+  ]);
+}

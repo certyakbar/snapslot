@@ -4,6 +4,7 @@ import type {
   BookingComputation,
   CustomerDetails,
   ExistingBooking,
+  PaymentStatus,
   Service,
   WeeklyAvailability,
 } from "./bookingCore.ts";
@@ -43,6 +44,9 @@ export interface BusinessProfile {
   passwordSalt: string;
   timezone: string;
   bookingPageSlug: string;
+  depositEnabled?: boolean;
+  depositType?: "fixed" | "percentage";
+  depositAmount?: number;
 }
 
 export interface BusinessView {
@@ -52,6 +56,13 @@ export interface BusinessView {
   ownerEmail: string;
   timezone: string;
   bookingPageSlug: string;
+  paymentConfig: PaymentConfig;
+}
+
+export interface PaymentConfig {
+  depositEnabled: boolean;
+  depositType: "fixed" | "percentage";
+  depositAmount: number;
 }
 
 export interface BookingRecord extends ExistingBooking {
@@ -59,6 +70,8 @@ export interface BookingRecord extends ExistingBooking {
   customer: CustomerDetails;
   serviceIds: string[];
   totalDurationMinutes: number;
+  paymentStatus: PaymentStatus;
+  depositAmount: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -119,6 +132,12 @@ export interface CreateServiceInput {
   bufferMinutes?: number;
 }
 
+export interface UpdatePaymentStatusInput {
+  businessId: string;
+  bookingId: string;
+  paymentStatus: PaymentStatus;
+}
+
 export interface UpdateServiceInput {
   businessId: string;
   serviceId: string;
@@ -175,15 +194,22 @@ export class BookingStore {
       throw new HttpError(400, "That business email is already in use.");
     }
 
+    const normalizedProfile: BusinessProfile = {
+      ...profile,
+      depositEnabled: profile.depositEnabled ?? false,
+      depositType: profile.depositType ?? "fixed",
+      depositAmount: profile.depositAmount ?? 0,
+    };
+
     const nextState = this.cloneState();
-    nextState.businesses.push({ ...profile });
-    nextState.services.set(profile.id, []);
-    nextState.availability.set(profile.id, []);
-    nextState.blockedTimes.set(profile.id, []);
-    nextState.bookings.set(profile.id, []);
+    nextState.businesses.push({ ...normalizedProfile });
+    nextState.services.set(normalizedProfile.id, []);
+    nextState.availability.set(normalizedProfile.id, []);
+    nextState.blockedTimes.set(normalizedProfile.id, []);
+    nextState.bookings.set(normalizedProfile.id, []);
 
     await this.persistState(nextState);
-    return profile;
+    return normalizedProfile;
   }
 
   listBusinesses(): BusinessProfile[] {
@@ -207,7 +233,20 @@ export class BookingStore {
   }
 
   getBusinessView(businessId: string): BusinessView {
-    return this.toBusinessView(this.getBusiness(businessId));
+    const business = this.getBusiness(businessId);
+    return {
+      id: business.id,
+      name: business.name,
+      ownerName: business.ownerName,
+      ownerEmail: business.ownerEmail,
+      timezone: business.timezone,
+      bookingPageSlug: business.bookingPageSlug,
+      paymentConfig: {
+        depositEnabled: business.depositEnabled ?? false,
+        depositType: business.depositType ?? "fixed",
+        depositAmount: business.depositAmount ?? 0,
+      },
+    };
   }
 
   getBusinessBySlug(bookingPageSlug: string): BusinessProfile {
@@ -288,6 +327,26 @@ export class BookingStore {
     await this.persistState(nextState);
 
     return updatedBusiness;
+  }
+
+  async updatePaymentConfig(businessId: string, config: PaymentConfig): Promise<PaymentConfig> {
+    if (config.depositAmount < 0) {
+      throw new HttpError(400, "Deposit amount must be zero or more.");
+    }
+    if (config.depositType === "percentage" && config.depositAmount > 100) {
+      throw new HttpError(400, "Deposit percentage must be between 0 and 100.");
+    }
+
+    const nextState = this.cloneState();
+    const business = nextState.businesses.find((b) => b.id === businessId);
+    if (!business) throw new HttpError(400, "Business was not found.");
+
+    business.depositEnabled = config.depositEnabled;
+    business.depositType = config.depositType;
+    business.depositAmount = config.depositAmount;
+
+    await this.persistState(nextState);
+    return config;
   }
 
   async createService(input: CreateServiceInput): Promise<Service> {
@@ -529,6 +588,19 @@ export class BookingStore {
       }
 
       const services = this.resolveRequestedServices(input.businessId, input.serviceIds);
+      const totalPrice = services.reduce((sum, service) => sum + Number(service.price || 0), 0);
+      const paymentConfig = {
+        depositEnabled: business.depositEnabled ?? false,
+        depositType: business.depositType ?? "fixed",
+        depositAmount: business.depositAmount ?? 0,
+      };
+      const bookingPaymentStatus: PaymentStatus = paymentConfig.depositEnabled ? "pending" : "not_required";
+      const bookingStatus = paymentConfig.depositEnabled ? "pending_payment" : "confirmed";
+      const snapshotDepositAmount = paymentConfig.depositEnabled
+        ? paymentConfig.depositType === "fixed"
+          ? paymentConfig.depositAmount
+          : Math.round((totalPrice * paymentConfig.depositAmount) / 100)
+        : 0;
       const availabilityWindows = this.resolveAvailabilityForInstant(input.businessId, input.requestedStart);
       if (availabilityWindows.length === 0) {
         throw new HttpError(400, "No working availability exists for the selected date.");
@@ -559,7 +631,9 @@ export class BookingStore {
         start: computation.start,
         end: computation.end,
         totalDurationMinutes: computation.totalDurationMinutes,
-        status: "confirmed",
+        paymentStatus: bookingPaymentStatus,
+        depositAmount: snapshotDepositAmount,
+        status: bookingStatus,
         createdAt: now,
         updatedAt: now,
       };
@@ -667,6 +741,45 @@ export class BookingStore {
       const currentServices = nextState.services.get(businessId) ?? [];
       return this.attachServiceSnapshots(booking, currentServices);
     });
+  }
+
+  async updateBookingPaymentStatus(input: UpdatePaymentStatusInput): Promise<BookingDetails> {
+    const nextState = this.cloneState();
+    const bookings = nextState.bookings.get(input.businessId) ?? [];
+    const booking = bookings.find((b) => b.id === input.bookingId);
+
+    if (!booking) throw new HttpError(400, "Booking was not found.");
+
+    const allowedTransitions: Record<string, PaymentStatus[]> = {
+      pending: ["paid", "failed"],
+      paid: ["refunded", "partially_refunded"],
+      failed: ["pending", "paid"],
+      not_required: [],
+      refunded: [],
+      partially_refunded: [],
+    };
+
+    const allowed = allowedTransitions[booking.paymentStatus] ?? [];
+    if (!allowed.includes(input.paymentStatus)) {
+      throw new HttpError(
+        400,
+        `Cannot transition payment from '${booking.paymentStatus}' to '${input.paymentStatus}'.`
+      );
+    }
+
+    booking.paymentStatus = input.paymentStatus;
+
+    if (input.paymentStatus === "paid") {
+      booking.status = "confirmed";
+    } else if (input.paymentStatus === "refunded") {
+      booking.status = "cancelled";
+    }
+
+    booking.updatedAt = new Date();
+
+    await this.persistState(nextState);
+    const services = nextState.services.get(input.businessId) ?? [];
+    return this.attachServiceSnapshots(booking, services);
   }
 
   private assertValidService(service: Service): void {
@@ -830,6 +943,9 @@ export class BookingStore {
       ownerEmail: business.ownerEmail ?? "",
       passwordHash: business.passwordHash ?? "",
       passwordSalt: business.passwordSalt ?? "",
+      depositEnabled: business.depositEnabled ?? false,
+      depositType: business.depositType ?? "fixed",
+      depositAmount: business.depositAmount ?? 0,
     }));
     this.state.services = new Map(
       Object.entries(persisted.servicesByBusinessId).map(([businessId, services]) => [
@@ -923,7 +1039,12 @@ export class BookingStore {
 
   private serializeState(state: StoreState): PersistedStoreState {
     return {
-      businesses: state.businesses.map((business): PersistedBusinessProfile => ({ ...business })),
+      businesses: state.businesses.map((business): PersistedBusinessProfile => ({
+        ...business,
+        depositEnabled: business.depositEnabled ?? false,
+        depositType: business.depositType ?? "fixed",
+        depositAmount: business.depositAmount ?? 0,
+      })),
       servicesByBusinessId: Object.fromEntries(
         Array.from(state.services.entries()).map(([businessId, services]) => [
           businessId,
@@ -971,6 +1092,11 @@ export class BookingStore {
       ownerEmail: business.ownerEmail,
       timezone: business.timezone,
       bookingPageSlug: business.bookingPageSlug,
+      paymentConfig: {
+        depositEnabled: business.depositEnabled ?? false,
+        depositType: business.depositType ?? "fixed",
+        depositAmount: business.depositAmount ?? 0,
+      },
     };
   }
 }
