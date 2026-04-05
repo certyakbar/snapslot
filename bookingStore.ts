@@ -16,6 +16,7 @@ import {
   buildBusinessDayRange,
   buildBookingComputation,
   conflictsWithExistingTime,
+  SUBSCRIPTION_BILLING_WINDOW_MS,
   getAvailabilityWindowsForDay,
   getLocalDayOfWeek,
   generateAvailableSlots,
@@ -222,7 +223,8 @@ export class BookingStore {
       subscriptionStatus: profile.subscriptionStatus ?? "active",
       subscriptionStartDate: profile.subscriptionStartDate ?? now.toISOString(),
       nextBillingDate:
-        profile.nextBillingDate ?? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        profile.nextBillingDate ??
+        new Date(now.getTime() + SUBSCRIPTION_BILLING_WINDOW_MS).toISOString(),
       suspendedAt: profile.suspendedAt ?? undefined,
       cancellationRequestedAt: profile.cancellationRequestedAt ?? undefined,
       gdprRetentionFlaggedAt: profile.gdprRetentionFlaggedAt ?? undefined,
@@ -417,7 +419,9 @@ export class BookingStore {
         const baseBillingTime = Number.isNaN(currentBillingDate.getTime())
           ? now.getTime()
           : currentBillingDate.getTime();
-        business.nextBillingDate = new Date(baseBillingTime + 30 * 24 * 60 * 60 * 1000).toISOString();
+        business.nextBillingDate = new Date(
+          baseBillingTime + SUBSCRIPTION_BILLING_WINDOW_MS
+        ).toISOString();
         business.suspendedAt = undefined;
         business.cancellationRequestedAt = undefined;
         business.subscriptionStatus = "active";
@@ -1095,7 +1099,9 @@ export class BookingStore {
   private async loadFromDisk(): Promise<void> {
     const persisted = await readStoreFile();
     const defaultSubscriptionStartDate = new Date().toISOString();
-    const defaultNextBillingDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const defaultNextBillingDate = new Date(
+      Date.now() + SUBSCRIPTION_BILLING_WINDOW_MS
+    ).toISOString();
 
     this.state.businesses = persisted.businesses.map((business) => ({
       ...business,
@@ -1219,7 +1225,8 @@ export class BookingStore {
         subscriptionStatus: business.subscriptionStatus ?? "active",
         subscriptionStartDate: business.subscriptionStartDate ?? new Date().toISOString(),
         nextBillingDate:
-          business.nextBillingDate ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          business.nextBillingDate ??
+          new Date(Date.now() + SUBSCRIPTION_BILLING_WINDOW_MS).toISOString(),
         suspendedAt: business.suspendedAt ?? undefined,
         cancellationRequestedAt: business.cancellationRequestedAt ?? undefined,
         gdprRetentionFlaggedAt: business.gdprRetentionFlaggedAt ?? undefined,
@@ -1281,7 +1288,8 @@ export class BookingStore {
       subscriptionStatus: business.subscriptionStatus ?? "active",
       subscriptionStartDate: business.subscriptionStartDate ?? new Date().toISOString(),
       nextBillingDate:
-        business.nextBillingDate ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        business.nextBillingDate ??
+        new Date(Date.now() + SUBSCRIPTION_BILLING_WINDOW_MS).toISOString(),
       suspendedAt: business.suspendedAt ?? undefined,
       cancellationRequestedAt: business.cancellationRequestedAt ?? undefined,
       billingHistory: this.cloneBillingHistory(business.billingHistory ?? []),

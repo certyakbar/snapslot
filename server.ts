@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { hashPassword, verifyPassword } from "./auth.ts";
 import { BookingStore } from "./bookingStore.ts";
 import type { BusinessProfile, PaymentConfig, UpdatePaymentStatusInput } from "./bookingStore.ts";
+import { SUBSCRIPTION_BILLING_WINDOW_MS } from "./bookingCore.ts";
 import { HttpError } from "./errors.ts";
 import {
   sendBookingConfirmation,
@@ -939,7 +940,8 @@ function toSnapslotAdminBusinessView(business: BusinessProfile) {
     subscriptionStatus: business.subscriptionStatus ?? "active",
     subscriptionStartDate: business.subscriptionStartDate ?? new Date().toISOString(),
     nextBillingDate:
-      business.nextBillingDate ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      business.nextBillingDate ??
+      new Date(Date.now() + SUBSCRIPTION_BILLING_WINDOW_MS).toISOString(),
     suspendedAt: business.suspendedAt ?? undefined,
     cancellationRequestedAt: business.cancellationRequestedAt ?? undefined,
     gdprRetentionFlaggedAt: business.gdprRetentionFlaggedAt ?? undefined,

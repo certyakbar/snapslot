@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { SUBSCRIPTION_BILLING_WINDOW_MS } from "./bookingCore.ts";
 
 export interface PersistedBusinessProfile {
   id: string;
@@ -111,7 +112,9 @@ export async function readStoreFile(): Promise<PersistedStoreState> {
   const raw = await fs.readFile(DATA_FILE, "utf-8");
   const parsed = JSON.parse(raw) as Partial<PersistedStoreState>;
   const defaultSubscriptionStartDate = new Date().toISOString();
-  const defaultNextBillingDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  const defaultNextBillingDate = new Date(
+    Date.now() + SUBSCRIPTION_BILLING_WINDOW_MS
+  ).toISOString();
 
   return {
     businesses: Array.isArray(parsed.businesses)

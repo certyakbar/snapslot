@@ -25,6 +25,8 @@ export interface BillingEvent {
   createdAt: string;
 }
 
+export const SUBSCRIPTION_BILLING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
 export interface Service {
   id: string;
   name: string;
