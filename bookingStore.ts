@@ -819,22 +819,24 @@ export class BookingStore {
   }
 
   async cancelBooking(businessId: string, bookingId: string): Promise<BookingDetails> {
-    this.getBusiness(businessId);
+    return this.withBusinessBookingCreationLock(businessId, async () => {
+      this.getBusiness(businessId);
 
-    const nextState = this.cloneState();
-    const bookings = nextState.bookings.get(businessId) ?? [];
-    const booking = bookings.find((item) => item.id === bookingId);
-    if (!booking) {
-      throw new HttpError(400, `Booking '${bookingId}' was not found.`);
-    }
+      const nextState = this.cloneState();
+      const bookings = nextState.bookings.get(businessId) ?? [];
+      const booking = bookings.find((item) => item.id === bookingId);
+      if (!booking) {
+        throw new HttpError(400, `Booking '${bookingId}' was not found.`);
+      }
 
-    booking.status = "cancelled";
-    booking.updatedAt = new Date();
+      booking.status = "cancelled";
+      booking.updatedAt = new Date();
 
-    await this.persistState(nextState);
+      await this.persistState(nextState);
 
-    const services = nextState.services.get(businessId) ?? [];
-    return this.attachServiceSnapshots(booking, services);
+      const services = nextState.services.get(businessId) ?? [];
+      return this.attachServiceSnapshots(booking, services);
+    });
   }
 
   async rescheduleBooking(
@@ -906,42 +908,44 @@ export class BookingStore {
   }
 
   async updateBookingPaymentStatus(input: UpdatePaymentStatusInput): Promise<BookingDetails> {
-    const nextState = this.cloneState();
-    const bookings = nextState.bookings.get(input.businessId) ?? [];
-    const booking = bookings.find((b) => b.id === input.bookingId);
+    return this.withBusinessBookingCreationLock(input.businessId, async () => {
+      const nextState = this.cloneState();
+      const bookings = nextState.bookings.get(input.businessId) ?? [];
+      const booking = bookings.find((b) => b.id === input.bookingId);
 
-    if (!booking) throw new HttpError(400, "Booking was not found.");
+      if (!booking) throw new HttpError(400, "Booking was not found.");
 
-    const allowedTransitions: Record<string, PaymentStatus[]> = {
-      pending: ["paid", "failed"],
-      paid: ["refunded", "partially_refunded"],
-      failed: ["pending", "paid"],
-      not_required: [],
-      refunded: [],
-      partially_refunded: [],
-    };
+      const allowedTransitions: Record<string, PaymentStatus[]> = {
+        pending: ["paid", "failed"],
+        paid: ["refunded", "partially_refunded"],
+        failed: ["pending", "paid"],
+        not_required: [],
+        refunded: [],
+        partially_refunded: [],
+      };
 
-    const allowed = allowedTransitions[booking.paymentStatus] ?? [];
-    if (!allowed.includes(input.paymentStatus)) {
-      throw new HttpError(
-        400,
-        `Cannot transition payment from '${booking.paymentStatus}' to '${input.paymentStatus}'.`
-      );
-    }
+      const allowed = allowedTransitions[booking.paymentStatus] ?? [];
+      if (!allowed.includes(input.paymentStatus)) {
+        throw new HttpError(
+          400,
+          `Cannot transition payment from '${booking.paymentStatus}' to '${input.paymentStatus}'.`
+        );
+      }
 
-    booking.paymentStatus = input.paymentStatus;
+      booking.paymentStatus = input.paymentStatus;
 
-    if (input.paymentStatus === "paid") {
-      booking.status = "confirmed";
-    } else if (input.paymentStatus === "refunded") {
-      booking.status = "cancelled";
-    }
+      if (input.paymentStatus === "paid") {
+        booking.status = "confirmed";
+      } else if (input.paymentStatus === "refunded") {
+        booking.status = "cancelled";
+      }
 
-    booking.updatedAt = new Date();
+      booking.updatedAt = new Date();
 
-    await this.persistState(nextState);
-    const services = nextState.services.get(input.businessId) ?? [];
-    return this.attachServiceSnapshots(booking, services);
+      await this.persistState(nextState);
+      const services = nextState.services.get(input.businessId) ?? [];
+      return this.attachServiceSnapshots(booking, services);
+    });
   }
 
   private assertValidService(service: Service): void {
