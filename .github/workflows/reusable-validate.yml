@@ -1,0 +1,66 @@
+name: Validate (reusable)
+
+on:
+  workflow_call:
+    outputs:
+      typecheck-passed:
+        description: "TypeScript typecheck result: true or false"
+        value: ${{ jobs.validate.outputs.typecheck-passed }}
+      tests-passed:
+        description: "Full test suite result: true or false"
+        value: ${{ jobs.validate.outputs.tests-passed }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Typecheck and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    outputs:
+      typecheck-passed: ${{ steps.typecheck.outputs.passed }}
+      tests-passed: ${{ steps.tests.outputs.passed }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        # package-lock.json exists in this repo — use ci for reproducible installs
+        run: npm ci
+
+      - name: Create data directory
+        # data/store.json is gitignored; tests write to this directory at runtime
+        run: mkdir -p data
+
+      - name: TypeScript typecheck
+        id: typecheck
+        run: |
+          if npx tsc --noEmit; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Run full test suite
+        id: tests
+        run: |
+          if npm test; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
