@@ -401,16 +401,24 @@ async function submitBooking() {
       }),
     });
 
-    showMessage(
-      bookingMessageEl,
-      UI_COPY.booking.bookingConfirmed(
-        customer.name,
-        formatDatePretty(result.start),
-        formatTime(result.start),
-        state.business.timezone
-      ),
-      "success"
-    );
+    if (result.paymentStatus === "pending") {
+      showMessage(
+        bookingMessageEl,
+        `${result.paymentLabel || "Deposit"} required - your booking is reserved pending payment.`,
+        "success"
+      );
+    } else {
+      showMessage(
+        bookingMessageEl,
+        UI_COPY.booking.bookingConfirmed(
+          customer.name,
+          formatDatePretty(result.start),
+          formatTime(result.start),
+          state.business.timezone
+        ),
+        "success"
+      );
+    }
 
     state.selectedSlot = null;
     clearSelectedSlotButtons();
