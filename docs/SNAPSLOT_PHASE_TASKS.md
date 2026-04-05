@@ -426,6 +426,9 @@ Make ownership, access, and business-state truth unbreakable.
 - business auth
 - password reset
 - active/suspended/deactivated enforcement
+- **all admin write routes gated by `assertBusinessActive` — services, availability, blocked-times, booking lifecycle, payment-config must all reject writes from suspended or deactivated businesses**
+- **platform owner password hashed and salt-stored using the same auth primitives as business auth (scrypt + timingSafeEqual)**
+- **deactivated business admin login blocked at the login route with a clear account-status message**
 - owner/business session boundary audit
 
 ### Entry criteria
@@ -434,16 +437,20 @@ Make ownership, access, and business-state truth unbreakable.
 ### Exit criteria
 - one owner account only
 - one owner login per business
-- suspended businesses cannot mutate
-- deactivated businesses cannot operate
-- route gating follows account-status truth
+- suspended businesses cannot mutate — enforced at every admin write route, not only public booking routes
+- deactivated businesses cannot operate — admin login blocked, not merely advisory
+- route gating follows account-status truth for both public AND admin surfaces
 - session boundaries are explicit and proven
+- platform owner password is hashed and verified with constant-time comparison, not plain-text env-var equality
+- no suspended-write bypass possible via direct API call
 
 ### Proof required
 - auth tests
 - route protection tests
-- status enforcement tests
+- status enforcement tests: every admin write route must be explicitly tested for 503 when business is suspended
 - suspended/deactivated UI proof
+- deactivated login rejection proof
+- owner password hashing proof
 
 ---
 
@@ -543,27 +550,34 @@ Make payment and refund truth exact.
 ### Tasks
 - payment config
 - deposit logic
-- failed
+- failed — backend transition, booking-status consequence when payment fails, and UI control
 - refunded
 - truthful payment/booking state interaction
-- keep `partially_refunded` deferred
+- **remove `partially_refunded` from `bookingStore.ts` `allowedTransitions` and from `server.ts` notification branch** — it is deferred by law but currently callable in live code
+- **define and pin what happens to booking status when payment → failed** (current code leaves booking status unchanged — this must be an explicit documented decision, not a gap)
+- **payment action UI: mark-paid, mark-failed, refund controls in admin-ui.js**
+- **`api.js` payment action wrapper**
+- **payment status and deposit amount displayed in admin bookings table**
 - money-copy truth audit
 
 ### Entry criteria
 - Phase 4 booking lifecycle stable enough
 
 ### Exit criteria
-- `failed` is real, not decorative
+- `failed` is real, not decorative — has backend guard, UI control, defined booking consequence, and notification
 - `refunded` is real, not decorative
 - payment and booking states never contradict
-- admin UI supports all current-phase payment actions
-- current-phase payment states are reachable and truthful
+- admin UI supports all current-phase payment actions: mark-paid, mark-failed, refund
+- `partially_refunded` is not a callable transition in any current-phase code path
+- current-phase payment states are reachable from the admin dashboard, not just via direct API
 
 ### Proof required
 - payment tests
 - refund tests
 - payment UI proof
 - booking/payment message proof
+- mark-failed booking-consequence proof
+- `partially_refunded` removed from live transition paths (proof of absence)
 
 ---
 
@@ -577,10 +591,11 @@ Make current-phase event communication truthful and safe.
 - booking created
 - payment required
 - payment received
-- payment failed
+- **payment failed — `sendPaymentFailed` function does not exist; must be created and wired in `server.ts` payment route**
 - cancelled
 - rescheduled
 - refund issued
+- **remove stale "NOT IMPLEMENTED" comment from `notificationService.ts` lines 65–66**
 - duplicate-trigger audit
 
 ### Entry criteria
@@ -590,9 +605,12 @@ Make current-phase event communication truthful and safe.
 - notifications reflect true state
 - notification failure does not corrupt lifecycle truth
 - duplicate paths do not silently spam
+- **payment-failed notification is implemented, wired, and tested** — not just listed as a requirement
+- no stale code comments misrepresenting implementation state
 
 ### Proof required
 - notification tests
+- **explicit payment-failed notification test**
 - trigger mapping audit
 - failure-isolation proof
 
@@ -610,20 +628,36 @@ Make the tenant dashboard a truthful operational surface.
 - ensure every backend action has real UI
 - ensure every UI action has real backend
 - unsupported-control audit
+- **reschedule booking UI control in `admin-ui.js` — reschedule button, date/slot modal, and form submission (backend and store exist; UI is entirely absent)**
+- **complete booking UI control in `admin-ui.js` — complete button wired to `/complete` route (route does not exist yet; coordinate with Phase 4 closure)**
+- **full cancel UI coverage in `admin-ui.js` — cancel button must be enabled for `pending_payment`, `confirmed`, and `rescheduled` statuses, not `confirmed` only (current gate is `booking.status === "confirmed"`)**
+- **`api.js` wrappers for: `rescheduleBooking`, `completeBooking`, `markPaid`, `markFailed`, `refundBooking` — currently none of these exist in `api.js`**
+- **suspended read-only enforcement in admin dashboard — suspended business admin must see a visible read-only banner; all mutating controls (create service, edit service, delete service, save availability, add blocked time, cancel/reschedule/complete/pay booking actions) must be visually disabled or hidden**
+- **update service and delete service UI controls in `admin-ui.js` — `api.js` has no `updateService` or `deleteService` function; audit whether these controls exist and are wired**
+- **payment config UI — verify `updatePaymentConfig` is wired in `api.js` and the payment-config panel is functional for active businesses; disabled for suspended**
 
 ### Entry criteria
 - Phases 1–6 stable enough
+- Phase 4 `completeBooking` route and store method exist (C-017)
+- Phase 5 payment action routes proven (C-019)
 
 ### Exit criteria
 - no backend-only important workflow
 - no UI-only fake control
-- suspended business admin can view but not mutate
+- suspended business admin can view but not mutate — enforced visually at every mutating control, not advisory
 - dashboard reflects actual lifecycle truth
+- all current-phase booking actions (cancel, reschedule, complete) are reachable from admin UI for all applicable booking states
+- all current-phase payment actions (mark paid, mark failed, refund) are reachable from admin UI
+- `api.js` has wrappers for every action the admin dashboard exposes
 
 ### Proof required
 - dashboard audit
 - panel-by-panel proof
-- suspended read-only proof
+- suspended read-only proof — every mutating control is disabled or hidden in suspended mode
+- cancel UI proof — cancel available for pending_payment, confirmed, rescheduled bookings
+- reschedule UI proof — reschedule control exists and submits to correct route
+- complete UI proof — complete control exists and submits to correct route
+- payment action UI proof — mark paid, mark failed, refund controls exist and submit
 
 ---
 
@@ -722,23 +756,45 @@ Treat this phase as normalization, not fantasy restart.
 ## Phase 11 — Hardening
 
 ### Goal
-Remove hidden production contradictions.
+Remove hidden production contradictions, deferred-feature code leaks, and security gaps that exist in current code.
 
 ### Tasks
-- concurrency audit
-- idempotency audit
-- failure-path audit
-- doc/ledger truth alignment
-- state-reachability audit
-- route-matrix audit
-- UI-matrix audit
-- unresolved-contradiction closure
+
+#### Deferred-feature code cleanup
+- **remove `partially_refunded` from `bookingStore.ts` `allowedTransitions` — it is currently a live callable transition from `paid`** (D-002 live runtime leak)
+- **remove `partially_refunded` notification branch from `server.ts` payment route line ~773** (D-002 live runtime leak)
+- **fix `bookingStore.ts` reschedule guard — replace `booking.status === "no_show"` terminal check with a positive allow-list of states that permit rescheduling; do not name deferred states** (D-006)
+- **add state guard to `cancelBooking` store method — reject with an error if current status is already `cancelled` or `completed`; no silent re-cancellation** (C-023)
+
+#### Security hardening
+- **HTTP security headers — add `helmet` or equivalent headers: `X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security`, `Content-Security-Policy` baseline**
+- **request body size limits — add explicit `express.json({ limit: '...' })` cap; current server.ts has no body-size constraint**
+- **CSRF review — audit whether session-cookie-based routes require CSRF token protection; document conclusion and implement if required**
+- **HTTPS enforcement — document whether TLS termination is done at process or reverse proxy level; ensure HTTP→HTTPS redirect is guaranteed in production**
+- **session persistence audit — in-memory session Map is lost on server restart, logging out all active sessions; document this behavior explicitly and decide whether file-backed or external session store is needed**
+- **rate limiting — add rate limit on login routes (owner and business) to prevent credential brute-force**
+
+#### Lifecycle truth audit
+- concurrency audit — verify `withBusinessBookingCreationLock` covers all mutating paths; check cancel and reschedule are still inside the lock
+- idempotency audit — duplicate-submit protection proof for public booking create
+- failure-path audit — verify all error handlers return structured errors, not stack traces
+- state-reachability audit — every current-phase state must be reachable from a defined actor action
+- route-matrix audit — every route in Route Matrix matches current server.ts reality
+- UI-matrix audit — every control in UI Matrix matches current admin-ui.js reality
+- unresolved-contradiction closure — close or explicitly re-defer every OPEN entry in the Contradiction Log
 
 ### Entry criteria
 - earlier phases substantially closed
 
 ### Exit criteria
 - no major hidden lifecycle contradiction remains
+- `partially_refunded` is not present in any live code path (transitions, notifications, UI, routes)
+- `no_show` is not named in any live transition guard
+- `cancelBooking` rejects terminal-status re-cancellation
+- HTTP security headers are set
+- body size limits are set
+- login rate limiting is in place
+- session-persistence behavior is explicitly documented
 - unsupported states/actions are removed or clearly deferred
 - docs match current proof and planned truth
 - retry/failure behavior is documented honestly
@@ -747,6 +803,64 @@ Remove hidden production contradictions.
 - audit reports
 - matrix review
 - updated ledger truth
+- deferred-feature code removal proof — grep showing `partially_refunded` and `no_show` absent from live transition/notification logic
+- cancelBooking state guard test — cancelled and completed bookings reject re-cancellation
+- security header proof — response header audit output
+
+---
+
+## Phase 12 — Production readiness
+
+### Goal
+Make SnapSlot safe and legal to operate beyond a local development environment.
+
+This phase does not add features. It closes the gap between a working codebase and a deployable, legally compliant service.
+
+### Tasks
+
+#### Deployment and process management
+- **document the canonical deployment target and process manager (e.g., PM2, systemd, Docker) — currently undocumented**
+- **ensure `data/store.json` path is configurable via environment variable, not hardcoded**
+- **document environment variable schema: every required and optional env var, with description, example, and whether it has a safe default**
+- **define graceful shutdown behavior — server must flush in-progress atomic writes before exit**
+
+#### Monitoring and observability
+- **structured error logging — unhandled exceptions and rejections must be logged with enough context for diagnosis; `console.error` alone is insufficient for production**
+- **health check endpoint — `GET /health` returning 200 OK with no auth required, for process manager and load balancer use**
+- **define on-call runbook stub — what to check when bookings fail, when subscription renewal fails, or when the server is unresponsive**
+
+#### GDPR / privacy / legal
+- **privacy policy page — required by GDPR for any service processing EU personal data; must describe what customer booking data is collected and retained**
+- **terms of service page — required for business signup**
+- **cookie / session disclosure — if session cookies are set, the service must disclose their use**
+- **customer data deletion mechanism — a business or platform owner must be able to delete all customer booking records on request; no mechanism currently exists**
+- **data retention policy — define and document how long booking data is kept; implement automated expiry or document that manual deletion is the current mechanism**
+
+#### Operational safety
+- **backup strategy for `data/store.json` — single flat file with no backup is a production data-loss risk; document backup strategy or implement automated copy**
+- **atomic write audit — verify `fs.rename` (temp file swap) is the only write path; no direct `writeFileSync` to the canonical store path**
+
+### Entry criteria
+- Phase 11 hardening complete enough for lifecycle truth
+- Phase 9 platform owner surface operational
+
+### Exit criteria
+- deployment target is documented
+- environment variable schema is documented
+- privacy policy page exists and is accessible to customers at booking time
+- terms of service page exists and is accessible to business admins at signup
+- customer data deletion mechanism exists
+- health check endpoint returns 200
+- structured error logging covers unhandled exceptions and rejections
+- backup strategy for store.json is documented and implemented or explicitly accepted as a known risk
+
+### Proof required
+- privacy policy page reachability proof
+- terms of service page reachability proof
+- health check endpoint proof
+- data deletion flow proof
+- environment variable documentation audit
+- backup strategy documentation or acceptance record
 
 ---
 
@@ -806,6 +920,33 @@ Use ADRs only for architecturally significant decisions:
 - billing source-of-truth design
 - owner auth model
 - concurrency boundary model
+
+### 7.6 Infrastructure and operational requirements
+Must define before Phase 12 closure:
+
+**Deployment target document:**
+- process manager and invocation command
+- required environment variables (all of them)
+- data directory path and permissions
+- TLS/HTTPS termination point
+- reverse proxy configuration (if used)
+
+**Backup and recovery document:**
+- backup target: `data/store.json` and any derived state
+- backup frequency and retention
+- restore procedure and test cadence
+- accepted-risk statement if backup is not automated
+
+**Runbook (stub minimum):**
+- what to do when: server is unresponsive, booking create fails, subscription renewal fails, store file is corrupted
+- escalation path
+
+**Legal pages checklist:**
+- privacy policy URL
+- terms of service URL
+- cookie policy disclosure (if applicable)
+- last-reviewed date
+- GDPR lawful basis for processing customer booking data
 
 ---
 
