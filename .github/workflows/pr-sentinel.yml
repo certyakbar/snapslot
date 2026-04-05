@@ -1,0 +1,481 @@
+name: PR Sentinel
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited]
+  # Re-run sentinel when a Governor verdict comment is posted.
+  # Top-level PR conversation comments are issue_comment events in GitHub's API.
+  # The job-level filter below restricts execution to PR comments that contain
+  # 'GOVERNOR VERDICT', so ordinary review discussion does not trigger a re-run.
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  # Deduplicate by PR number across both trigger types.
+  # pull_request events: github.event.pull_request.number
+  # issue_comment events: github.event.issue.number (the PR number)
+  group: sentinel-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Run validation
+    # Only run for pull_request events.
+    # issue_comment events run validation inline inside sentinel-judge below,
+    # against the correct PR head SHA fetched via API.
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/reusable-validate.yml
+
+  sentinel-judge:
+    name: Sentinel verdict
+    needs: [validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Runs when:
+    #   (a) Any pull_request event — always() lets this run even when validate is skipped
+    #       (validate is only skipped for issue_comment, not for pull_request)
+    #   (b) An issue_comment on a PR (event.issue.pull_request.url is non-empty)
+    #       whose body contains 'GOVERNOR VERDICT' — narrows to verdict comments only
+    if: |
+      always() && (
+        github.event_name == 'pull_request' ||
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request.url != '' &&
+          contains(github.event.comment.body, 'GOVERNOR VERDICT')
+        )
+      )
+
+    steps:
+      # ── Comment-trigger: fetch PR head, checkout, and validate inline ────
+      # Every step in this block has 'if: github.event_name == 'issue_comment'' so
+      # the block is entirely skipped for pull_request events.
+
+      - name: Fetch PR head SHA (comment trigger)
+        id: pr-ref
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            if (pr.base.ref !== 'main') {
+              core.warning(`PR #${pr.number} targets '${pr.base.ref}', not 'main' — sentinel skipped`);
+              core.setOutput('skip', 'true');
+              return;
+            }
+            core.setOutput('skip', 'false');
+            core.setOutput('head-sha', pr.head.sha);
+
+      - name: Checkout PR head (comment trigger)
+        if: github.event_name == 'issue_comment' && steps.pr-ref.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr-ref.outputs.head-sha }}
+
+      - name: Setup Node.js 24 (comment trigger)
+        if: github.event_name == 'issue_comment' && steps.pr-ref.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies (comment trigger)
+        if: github.event_name == 'issue_comment' && steps.pr-ref.outputs.skip != 'true'
+        run: npm ci
+
+      - name: Create data directory (comment trigger)
+        if: github.event_name == 'issue_comment' && steps.pr-ref.outputs.skip != 'true'
+        run: mkdir -p data
+
+      - name: TypeScript typecheck (comment trigger)
+        id: typecheck-inline
+        if: github.event_name == 'issue_comment' && steps.pr-ref.outputs.skip != 'true'
+        run: |
+          if npx tsc --noEmit; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run full test suite (comment trigger)
+        id: tests-inline
+        if: github.event_name == 'issue_comment' && steps.pr-ref.outputs.skip != 'true'
+        run: |
+          if npm test; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Sentinel evaluation — runs for both trigger types ─────────────────
+      # Skipped only when pr-ref detected a non-main PR (skip == 'true').
+      # For pull_request events, pr-ref was skipped so outputs.skip is '' (not 'true') — runs.
+      - name: Evaluate PR and post sentinel verdict
+        if: steps.pr-ref.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // ── Governor identity ──────────────────────────────────────────
+            // Only verdict comments from this GitHub login are accepted.
+            // c.user.login is controlled by GitHub and cannot be spoofed.
+            const GOVERNOR_LOGIN = 'certyakbar';
+
+            const isCommentTrigger = '${{ github.event_name }}' === 'issue_comment';
+
+            // ── Validation results ─────────────────────────────────────────
+            // pull_request trigger: outputs from the reusable validate job
+            // issue_comment trigger: outputs from inline validation steps above
+            // For comment trigger: empty outputs (skipped steps) evaluate to false — fail closed
+            const typecheckPassed = isCommentTrigger
+              ? '${{ steps.typecheck-inline.outputs.passed }}' === 'true'
+              : '${{ needs.validate.outputs.typecheck-passed }}' === 'true';
+            const testsPassed = isCommentTrigger
+              ? '${{ steps.tests-inline.outputs.passed }}' === 'true'
+              : '${{ needs.validate.outputs.tests-passed }}' === 'true';
+            const validatePassed = isCommentTrigger
+              ? (typecheckPassed && testsPassed)
+              : ('${{ needs.validate.result }}' === 'success');
+
+            // ── PR body ────────────────────────────────────────────────────
+            // pull_request trigger: available directly in event payload
+            // issue_comment trigger: event payload has issue data, not full PR — fetch via API
+            let prBody = '';
+            if (isCommentTrigger) {
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number,
+              });
+              prBody = pr.body || '';
+            } else {
+              prBody = context.payload.pull_request?.body || '';
+            }
+
+            // ── Group B: PR template field checks ─────────────────────────
+            // B1: Task packet ID — must be T-{something}, not a placeholder comment
+            const hasTaskId = /Task ID:\s*T-\S+/.test(prBody);
+
+            // B2: Risk tier explicitly declared
+            const riskMatch = prBody.match(/Risk level:\s*(CRITICAL|HIGH|MEDIUM|LOW)/i);
+            const riskLevel = riskMatch ? riskMatch[1].toUpperCase() : null;
+
+            // B3: Files changed section — parse the declared file list deterministically.
+            // Matches the "**Files changed (exact list):**" section up to the next bold header,
+            // HR, or section heading.
+            const filesChangedMatch = prBody.match(
+              /\*\*Files changed[^*]*\*\*[^\n]*\n([\s\S]*?)(?=\n\*\*Files explicitly|\n---|\n##|$)/i
+            );
+            const filesChangedSection = filesChangedMatch ? filesChangedMatch[1] : '';
+            // Extract file paths: lines starting with - or * followed by an optional backtick-quoted
+            // or bare path. Filter out placeholder HTML comments.
+            const declaredFiles = [...filesChangedSection.matchAll(/^[-*]\s+`?([^\s`\n<>]+)`?/gm)]
+              .map(m => m[1].trim())
+              .filter(f => f.length > 0 && !f.startsWith('<!--'));
+            const hasFilesChanged = declaredFiles.length > 0;
+
+            // B4: Ledger impact declared — placeholder replaced or "None" explicitly written
+            const ledgerSectionMatch = prBody.match(/## Ledger impact([\s\S]*?)(?=##|$)/i);
+            const ledgerSection = ledgerSectionMatch ? ledgerSectionMatch[1] : '';
+            const ledgerHasContent =
+              /None/i.test(ledgerSection) ||
+              (ledgerSection.includes('|') && !ledgerSection.includes('<!-- area -->'));
+
+            // ── Group C: Protected-path / risk alignment ────────────────────
+            // context.issue.number returns the PR number for both pull_request and
+            // issue_comment events — no branch needed here.
+            let changedFiles = [];
+            let fileFetchFailed = false;
+            try {
+              let page = 1;
+              while (true) {
+                const { data: files } = await github.rest.pulls.listFiles({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.issue.number,
+                  per_page: 100,
+                  page,
+                });
+                changedFiles.push(...files.map(f => f.filename));
+                if (files.length < 100) break;
+                page++;
+              }
+            } catch (e) {
+              core.warning(`Could not fetch changed files: ${e.message}`);
+              fileFetchFailed = true;
+            }
+
+            // CRITICAL-path files (per docs/SNAPSLOT_RISK_POLICY.md §4)
+            const criticalPaths = [
+              'auth.ts', 'server.ts', 'bookingStore.ts',
+              'bookingCore.ts', 'Persistence.ts', 'errors.ts',
+            ];
+
+            // HIGH-path files: runtime HIGH files + governance control spine.
+            // Governance spine files are HIGH because weakening them degrades the entire
+            // enforcement model and requires Governor verdict before merge.
+            const highPaths = [
+              // Runtime HIGH
+              'notificationService.ts',
+              'public/js/booking-ui.js',
+              'public/js/admin-ui.js',
+              'public/js/api.js',
+              // Governance control spine (HIGH)
+              'CLAUDE.md',
+              'AGENTS.md',
+              'docs/SNAPSLOT_CONSTITUTION.md',
+              'docs/SNAPSLOT_SENTINEL_CONTRACT.md',
+              'docs/SNAPSLOT_RISK_POLICY.md',
+              'docs/SNAPSLOT_TASK_PACKET_SCHEMA.md',
+              '.github/CODEOWNERS',
+              '.github/pull_request_template.md',
+            ];
+            // All files under .github/workflows/ are HIGH (prefix match)
+            const highPathPrefixes = ['.github/workflows/'];
+
+            const touchedCritical = changedFiles.filter(f => criticalPaths.includes(f));
+            const touchedHigh = changedFiles.filter(f =>
+              highPaths.includes(f) ||
+              highPathPrefixes.some(prefix => f.startsWith(prefix))
+            );
+
+            // Fail closed if the file fetch failed — do not silently pass
+            let riskAlignmentPassed = !fileFetchFailed;
+            let riskAlignmentNote = fileFetchFailed
+              ? 'Changed-files API call failed — failing closed; cannot verify risk alignment'
+              : 'No protected-path risk mismatch';
+
+            if (!fileFetchFailed) {
+              if (touchedCritical.length > 0 && riskLevel !== 'CRITICAL') {
+                riskAlignmentPassed = false;
+                riskAlignmentNote =
+                  `CRITICAL-path files changed (\`${touchedCritical.join('`, `')}\`) ` +
+                  `but risk declared as \`${riskLevel || 'MISSING'}\`. Must be CRITICAL.`;
+              } else if (
+                touchedCritical.length === 0 &&
+                touchedHigh.length > 0 &&
+                riskLevel &&
+                !['CRITICAL', 'HIGH'].includes(riskLevel)
+              ) {
+                riskAlignmentPassed = false;
+                riskAlignmentNote =
+                  `HIGH-path files changed (\`${touchedHigh.join('`, `')}\`) ` +
+                  `but risk declared as \`${riskLevel}\`. Must be CRITICAL or HIGH.`;
+              } else if (touchedCritical.length > 0 || touchedHigh.length > 0) {
+                riskAlignmentNote =
+                  `Protected files changed: \`${[...touchedCritical, ...touchedHigh].join('`, `')}\`` +
+                  ` — risk level \`${riskLevel}\` is aligned.`;
+              }
+            }
+
+            // C3: Declared scope vs actual diff — EXACT equivalence required in both directions.
+            // (1) Files in the actual diff but not declared → scope-drift violation.
+            // (2) Files declared but not in the actual diff → phantom-scope violation.
+            // Both directions must match. A declared file that was never changed is as wrong
+            // as an undeclared file that was changed.
+            let scopeAlignmentPassed = true;
+            let scopeAlignmentNote = 'Scope check skipped (declared files not parsed from body)';
+
+            if (fileFetchFailed) {
+              scopeAlignmentPassed = false;
+              scopeAlignmentNote =
+                'File fetch failed — scope check cannot be completed, failing closed';
+            } else if (hasFilesChanged) {
+              const undeclaredFiles = changedFiles.filter(f => !declaredFiles.includes(f));
+              const phantomFiles    = declaredFiles.filter(f => !changedFiles.includes(f));
+
+              if (undeclaredFiles.length > 0 || phantomFiles.length > 0) {
+                scopeAlignmentPassed = false;
+                const parts = [];
+                if (undeclaredFiles.length > 0) {
+                  parts.push(
+                    `Files in diff but not declared: \`${undeclaredFiles.join('`, `')}\``
+                  );
+                }
+                if (phantomFiles.length > 0) {
+                  parts.push(
+                    `Files declared but not in diff: \`${phantomFiles.join('`, `')}\``
+                  );
+                }
+                scopeAlignmentNote = parts.join('; ');
+              } else {
+                scopeAlignmentNote =
+                  `Declared scope exactly matches actual diff (${changedFiles.length} file(s))`;
+              }
+            }
+            // If !hasFilesChanged, B3 already fails the PR; scope check note stays as-is.
+
+            // ── Group D: Governor verdict ──────────────────────────────────
+            // Verdicts are scanned at ALL risk levels:
+            //   CRITICAL/HIGH — an APPROVE comment is required; absence = FAIL
+            //   MEDIUM/LOW    — an APPROVE is not required, but a BLOCK always fails the PR
+            //
+            // Authentication: only comments from GOVERNOR_LOGIN are accepted as verdicts.
+            //   c.user.login is controlled by GitHub and cannot be spoofed by a commenter.
+            //   A comment from any other account containing the verdict pattern is ignored.
+            //
+            // Latest wins: all matching authenticated verdict comments are collected;
+            //   the last one in creation order is used. This correctly handles
+            //   BLOCK-then-APPROVE (Governor later approved) and
+            //   APPROVE-then-BLOCK (Governor later withdrew approval).
+            //
+            // Fail closed: if the comment API call fails, governorPassed = false.
+
+            const governorCheckApplies = !!(riskLevel && ['CRITICAL', 'HIGH'].includes(riskLevel));
+            // Default: pass for MEDIUM/LOW (no verdict required); will be overridden by BLOCK or API failure
+            let governorPassed = true;
+            let governorNote = `Not required for risk level \`${riskLevel || 'undeclared'}\` — no Governor verdict found`;
+
+            try {
+              const allGovernorVerdicts = [];
+              let commentPage = 1;
+
+              while (true) {
+                const { data: comments } = await github.rest.issues.listComments({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  per_page: 100,
+                  page: commentPage,
+                });
+
+                for (const c of comments) {
+                  // Authenticate: must be from the Governor identity.
+                  // Match the verdict pattern only after identity is confirmed.
+                  if (
+                    c.user &&
+                    c.user.login === GOVERNOR_LOGIN &&
+                    /GOVERNOR VERDICT:\s*(APPROVE FOR MERGE|BLOCK)/i.test(c.body || '')
+                  ) {
+                    allGovernorVerdicts.push(c);
+                  }
+                }
+
+                if (comments.length < 100) break;
+                commentPage++;
+              }
+
+              if (allGovernorVerdicts.length === 0) {
+                // No authenticated Governor verdict found
+                if (governorCheckApplies) {
+                  // CRITICAL/HIGH: verdict is required — fail
+                  governorPassed = false;
+                  governorNote =
+                    `Risk level \`${riskLevel}\` requires a Governor verdict comment ` +
+                    `from @${GOVERNOR_LOGIN} before merge — none found`;
+                }
+                // MEDIUM/LOW with no verdict: governorPassed stays true, note already set
+              } else {
+                // One or more authenticated Governor verdicts found.
+                // listComments returns comments in ascending created_at order (oldest first).
+                // The last element is the most recently posted Governor verdict — it wins.
+                const latestVerdict = allGovernorVerdicts[allGovernorVerdicts.length - 1];
+                const latestIsApprove =
+                  /GOVERNOR VERDICT:\s*APPROVE FOR MERGE/i.test(latestVerdict.body);
+                const verdictCount = allGovernorVerdicts.length;
+                const suffix = verdictCount > 1
+                  ? ` (latest of ${verdictCount} Governor verdicts)`
+                  : '';
+
+                if (latestIsApprove) {
+                  // APPROVE wins — passes the Governor check regardless of risk level
+                  governorPassed = true;
+                  governorNote = `Governor APPROVE verdict found${suffix}`;
+                } else {
+                  // BLOCK wins — blocks merge at ALL risk levels, no exceptions
+                  governorPassed = false;
+                  governorNote =
+                    `Governor BLOCK verdict${suffix} — blocks merge at all risk levels`;
+                }
+              }
+            } catch (e) {
+              // Fail closed — cannot verify verdict if comment fetch fails
+              core.warning(`Could not fetch PR comments: ${e.message}`);
+              governorPassed = false;
+              governorNote =
+                `PR comment fetch failed — failing closed. Cannot verify Governor verdict.`;
+            }
+
+            // ── Build check table ────────────────────────────────────────────
+            const p = passed => (passed ? '✅ PASS' : '❌ FAIL');
+
+            const rows = [
+              ['TypeScript typecheck (`npx tsc --noEmit`)', p(typecheckPassed), ''],
+              ['Full test suite (`npm test`)',               p(testsPassed),     ''],
+              ['Task packet ID (`T-{...}`)',                 p(hasTaskId),       hasTaskId ? '' : 'Missing or placeholder — fill Task ID field'],
+              ['Risk tier declared',                        p(!!riskLevel),     riskLevel ? `\`${riskLevel}\`` : 'Missing — add CRITICAL / HIGH / MEDIUM / LOW'],
+              ['Allowed files declaration',                 p(hasFilesChanged), hasFilesChanged ? '' : 'Files changed section appears empty or contains only placeholders'],
+              ['Ledger / doc impact declared',              p(ledgerHasContent),ledgerHasContent ? '' : 'Ledger section placeholder not replaced — write the impacted rows or "None"'],
+              ['Protected path / risk alignment',           p(riskAlignmentPassed), riskAlignmentNote],
+              ['Declared scope vs actual diff',             p(scopeAlignmentPassed), scopeAlignmentNote],
+            ];
+
+            // Governor verdict row label and result vary by situation:
+            //   - CRITICAL/HIGH and no APPROVE → required, FAIL
+            //   - Any risk level with BLOCK → overrides, FAIL
+            //   - MEDIUM/LOW with no verdict or APPROVE only → N/A
+            if (governorCheckApplies || !governorPassed) {
+              const label = governorCheckApplies
+                ? `Governor verdict (required — risk \`${riskLevel}\`)`
+                : 'Governor verdict (BLOCK — overrides at all risk levels)';
+              rows.push([label, p(governorPassed), governorNote]);
+            } else {
+              rows.push(['Governor verdict', '— N/A', governorNote]);
+            }
+
+            // ── Determine overall verdict ─────────────────────────────────
+            // governorPassed covers all four cases:
+            //   true  — MEDIUM/LOW with no BLOCK, or any level with APPROVE
+            //   false — CRITICAL/HIGH with no/BLOCK verdict; any level with BLOCK; API failure
+            const allPassed =
+              validatePassed &&
+              hasTaskId &&
+              !!riskLevel &&
+              hasFilesChanged &&
+              ledgerHasContent &&
+              riskAlignmentPassed &&
+              scopeAlignmentPassed &&
+              governorPassed;
+
+            const verdict = allPassed
+              ? '✅ SENTINEL-PASS'
+              : '❌ SENTINEL-FAIL';
+
+            // ── Post comment ──────────────────────────────────────────────
+            const body = [
+              '## Sentinel Report',
+              '',
+              '| Check | Result | Note |',
+              '|---|---|---|',
+              ...rows.map(([check, result, note]) =>
+                `| ${check} | ${result} | ${note} |`
+              ),
+              '',
+              `**Verdict: ${verdict}**`,
+              '',
+              allPassed
+                ? '> All checks passed. Governor review is required for CRITICAL or HIGH risk changes before merge.'
+                : '> One or more checks failed. Fix all ❌ items and push again.',
+              '',
+              '> Governed by `docs/SNAPSLOT_SENTINEL_CONTRACT.md` and `docs/SNAPSLOT_RISK_POLICY.md`.',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+            if (!allPassed) {
+              core.setFailed(`Sentinel checks failed: ${verdict}`);
+            }

@@ -1,0 +1,83 @@
+# SnapSlot CODEOWNERS
+#
+# Requires @certyakbar as a required reviewer for any PR that modifies
+# the listed governance or high-risk runtime files.
+#
+# CODEOWNERS is enforced automatically when branch protection is enabled on main.
+# Without branch protection, this file is advisory only.
+#
+# Rule: last matching pattern wins (GitHub CODEOWNERS spec).
+
+# ── Governance control spine (HIGH) ─────────────────────────────────────────
+# Supreme engineering law — no modification without Governor review
+CLAUDE.md                                          @certyakbar
+AGENTS.md                                          @certyakbar
+
+# Core product law
+docs/SNAPSLOT_CONSTITUTION.md                      @certyakbar
+
+# Enforcement spine — weakening any of these bypasses automated or Governor controls
+docs/SNAPSLOT_SENTINEL_CONTRACT.md                 @certyakbar
+docs/SNAPSLOT_RISK_POLICY.md                       @certyakbar
+docs/SNAPSLOT_TASK_PACKET_SCHEMA.md                @certyakbar
+
+# GitHub workflow, policy, and CI files (HIGH — weakening bypasses all automated checks)
+.github/                                           @certyakbar
+
+# ── Operational control docs (MEDIUM) ───────────────────────────────────────
+# Proof truth — no PASS claim may be added without Governor review
+docs/SNAPSLOT_ACCEPTANCE_LEDGER.md                 @certyakbar
+
+# Execution order and phase gates
+docs/SNAPSLOT_PHASE_TASKS.md                       @certyakbar
+
+# Operational control maps
+docs/SNAPSLOT_STATE_MATRIX.md                      @certyakbar
+docs/SNAPSLOT_ROUTE_MATRIX.md                      @certyakbar
+docs/SNAPSLOT_UI_MATRIX.md                         @certyakbar
+
+# Contradiction and context recovery
+docs/SNAPSLOT_CONTRADICTION_LOG.md                 @certyakbar
+docs/SNAPSLOT_CONTEXT_RECOVERY_PROTOCOL.md         @certyakbar
+
+# Architecture
+docs/SNAPSLOT_ARCHITECTURE.md                      @certyakbar
+
+# ── Auth / session (CRITICAL) ────────────────────────────────────────────────
+# Password hashing and verification primitives
+auth.ts                                            @certyakbar
+
+# ── Routing, tenant isolation, and business-status enforcement (CRITICAL) ───
+# All routes, session guards, assertBusinessSession, assertBusinessActive,
+# cross-tenant ownership checks, billing actions
+server.ts                                          @certyakbar
+
+# ── Booking / payment / subscription domain logic (CRITICAL) ────────────────
+# All booking state transitions, slot conflict detection, concurrency lock,
+# subscription state machine, billing events
+bookingStore.ts                                    @certyakbar
+
+# Type definitions, BookingStatus, PaymentStatus, SubscriptionStatus,
+# SUBSCRIPTION_BILLING_WINDOW_MS constant
+bookingCore.ts                                     @certyakbar
+
+# Data persistence layer — subscription initialisation, store read/write
+Persistence.ts                                     @certyakbar
+
+# ── Error handling (CRITICAL) ────────────────────────────────────────────────
+# HttpError class used across all security and validation paths
+errors.ts                                          @certyakbar
+
+# ── Notifications (HIGH) ─────────────────────────────────────────────────────
+# Event triggers for all lifecycle notifications
+notificationService.ts                             @certyakbar
+
+# ── Frontend booking and admin logic (HIGH) ──────────────────────────────────
+# Customer-facing booking flow; payment/confirmation copy truth
+public/js/booking-ui.js                            @certyakbar
+
+# Admin dashboard logic; booking actions, payment actions, validation
+public/js/admin-ui.js                              @certyakbar
+
+# Admin API wrapper; mismatches here create silent backend/frontend gaps
+public/js/api.js                                   @certyakbar
