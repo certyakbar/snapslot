@@ -5,7 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { hashPassword, verifyPassword } from "./auth.ts";
 import { BookingStore } from "./bookingStore.ts";
-import type { PaymentConfig, UpdatePaymentStatusInput } from "./bookingStore.ts";
+import type { BusinessProfile, PaymentConfig, UpdatePaymentStatusInput } from "./bookingStore.ts";
 import { HttpError } from "./errors.ts";
 import {
   sendBookingConfirmation,
@@ -62,8 +62,10 @@ type AuthSession = {
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
 const SESSION_COOKIE_NAME = "booking_session";
+const SNAPSLOT_ADMIN_SESSION_COOKIE_NAME = "snapslot_admin_session";
 const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const sessions = new Map<string, AuthSession>();
+const snapslotAdminSessions = new Set<string>();
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 const LOGIN_RATE_LIMIT_MAX = 5;
 const LOGIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
@@ -233,6 +235,63 @@ async function startServer(): Promise<void> {
     }
   });
 
+  app.post("/api/snapslot-admin/login", (req: Request, res: Response) => {
+    const password = String(req.body?.password ?? "");
+    const expectedPassword = String(process.env.SNAPSLOT_ADMIN_PASSWORD ?? "");
+
+    if (!expectedPassword || password !== expectedPassword) {
+      res.status(401).json({ error: "Incorrect password." });
+      return;
+    }
+
+    const token = randomBytes(32).toString("hex");
+    snapslotAdminSessions.add(token);
+    setSnapslotAdminSessionCookie(res, token);
+    res.json({ ok: true });
+  });
+
+  app.post("/api/snapslot-admin/logout", (req: Request, res: Response) => {
+    const token = getSnapslotAdminSessionTokenFromRequest(req);
+
+    if (token) {
+      snapslotAdminSessions.delete(token);
+    }
+
+    clearSnapslotAdminSessionCookie(res);
+    res.json({ ok: true });
+  });
+
+  app.get("/api/snapslot-admin/businesses", (req: Request, res: Response) => {
+    try {
+      assertSnapslotAdminSession(req, res);
+      res.json(store.listAllBusinessesForAdmin().map(toSnapslotAdminBusinessView));
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.patch(
+    "/api/snapslot-admin/businesses/:businessId/billing",
+    async (req: Request<BusinessParams>, res: Response) => {
+      try {
+        assertSnapslotAdminSession(req, res);
+        const business = await store.applyBillingAction(
+          req.params.businessId,
+          String(req.body?.action ?? "") as
+            | "mark_paid"
+            | "suspend"
+            | "reactivate"
+            | "deactivate"
+            | "refund",
+          req.body?.note ? String(req.body.note) : undefined
+        );
+        res.json(toSnapslotAdminBusinessView(business));
+      } catch (error) {
+        handleError(res, error);
+      }
+    }
+  );
+
   app.get("/api/business/:businessId/qr", (req: Request<BusinessParams>, res: Response) => {
     try {
       assertBusinessSession(req, res, req.params.businessId);
@@ -293,6 +352,9 @@ async function startServer(): Promise<void> {
   app.post("/api/booking-page/:slug/bookings", async (req: Request<BookingPageParams>, res: Response) => {
     try {
       const business = getPublicBusinessBySlug(store, req.params.slug);
+      if (!assertBusinessActive(business, res)) {
+        return;
+      }
       const booking = await store.createBooking({
         businessId: business.id,
         requestedStart: new Date(req.body.requestedStart),
@@ -344,6 +406,42 @@ async function startServer(): Promise<void> {
       handleError(res, error);
     }
   });
+
+  app.get("/api/business/:businessId/subscription", (req: Request<BusinessParams>, res: Response) => {
+    try {
+      assertBusinessSession(req, res, req.params.businessId);
+      const business = store.getBusinessView(req.params.businessId);
+      const billingHistory = business.billingHistory.filter((event) =>
+        ["payment_received", "payment_failed", "refund_issued", "cancellation_requested"].includes(event.type)
+      );
+
+      res.json({
+        subscriptionStatus: business.subscriptionStatus,
+        subscriptionStartDate: business.subscriptionStartDate,
+        nextBillingDate: business.nextBillingDate,
+        cancellationRequestedAt: business.cancellationRequestedAt,
+        billingHistory,
+        pricePerMonth: 60.0,
+      });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.post(
+    "/api/business/:businessId/subscription/cancel",
+    async (req: Request<BusinessParams>, res: Response) => {
+      try {
+        assertBusinessSession(req, res, req.params.businessId);
+        await store.requestCancellation(req.params.businessId);
+        res.json({
+          message: "Cancellation requested. Your access continues until your next billing date.",
+        });
+      } catch (error) {
+        handleError(res, error);
+      }
+    }
+  );
 
   app.get("/api/business/:businessId/payment-config", (req: Request<BusinessParams>, res: Response) => {
     try {
@@ -530,11 +628,15 @@ async function startServer(): Promise<void> {
   app.get("/api/business/:businessId/slots", (req: Request<BusinessParams>, res: Response) => {
     try {
       assertBusinessSession(req, res, req.params.businessId);
+      const business = store.getBusiness(req.params.businessId);
+      if (!assertBusinessActive(business, res)) {
+        return;
+      }
       const date = parseDateQuery(req.query.date);
       const serviceIds = parseServiceIds(req.query.serviceIds);
       const stepMinutes = req.query.stepMinutes ? Number(req.query.stepMinutes) : 15;
 
-      const slots = store.getAvailableSlots(req.params.businessId, date, serviceIds, stepMinutes);
+      const slots = store.getAvailableSlots(business.id, date, serviceIds, stepMinutes);
       res.json(slots);
     } catch (error) {
       handleError(res, error);
@@ -684,8 +786,17 @@ async function startServer(): Promise<void> {
     }
   );
 
-  app.get("/booking/:slug", (_req: Request, res: Response) => {
-    res.sendFile(path.join(__dirname, "public", "index.html"));
+  app.get("/booking/:slug", (req: Request<BookingPageParams>, res: Response) => {
+    try {
+      const business = getPublicBusinessBySlug(store, req.params.slug);
+      if (!assertBusinessActive(business, res)) {
+        return;
+      }
+
+      res.sendFile(path.join(__dirname, "public", "index.html"));
+    } catch (error) {
+      handleError(res, error);
+    }
   });
 
   app.get("/admin/:businessId", (req: Request<BusinessParams>, res: Response) => {
@@ -702,6 +813,24 @@ async function startServer(): Promise<void> {
     }
 
     res.sendFile(path.join(__dirname, "public", "admin.html"));
+  });
+
+  app.get("/snapslot-admin", (req: Request, res: Response) => {
+    if (!hasValidSnapslotAdminSession(req)) {
+      res.redirect("/snapslot-admin/login");
+      return;
+    }
+
+    res.sendFile(path.join(__dirname, "public", "snapslot-admin.html"));
+  });
+
+  app.get("/snapslot-admin/login", (req: Request, res: Response) => {
+    if (hasValidSnapslotAdminSession(req)) {
+      res.redirect("/snapslot-admin");
+      return;
+    }
+
+    res.sendFile(path.join(__dirname, "public", "snapslot-admin-login.html"));
   });
 
   app.get("/signup", (req: Request, res: Response) => {
@@ -785,6 +914,39 @@ function assertBusinessSession(req: Request, _res: Response, businessId: string)
   }
 }
 
+function assertSnapslotAdminSession(req: Request, _res: Response): void {
+  const token = getSnapslotAdminSessionTokenFromRequest(req);
+
+  if (!token || !snapslotAdminSessions.has(token)) {
+    throw new HttpError(401, "Unauthorised.");
+  }
+}
+
+function assertBusinessActive(business: BusinessProfile, res: Response): boolean {
+  if (business.subscriptionStatus === "suspended" || business.subscriptionStatus === "deactivated") {
+    res.status(503).json({ error: "This business is not currently active." });
+    return false;
+  }
+
+  return true;
+}
+
+function toSnapslotAdminBusinessView(business: BusinessProfile) {
+  return {
+    id: business.id,
+    name: business.name,
+    ownerEmail: business.ownerEmail,
+    subscriptionStatus: business.subscriptionStatus ?? "active",
+    subscriptionStartDate: business.subscriptionStartDate ?? new Date().toISOString(),
+    nextBillingDate:
+      business.nextBillingDate ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    suspendedAt: business.suspendedAt ?? undefined,
+    cancellationRequestedAt: business.cancellationRequestedAt ?? undefined,
+    gdprRetentionFlaggedAt: business.gdprRetentionFlaggedAt ?? undefined,
+    billingHistory: (business.billingHistory ?? []).map((event) => ({ ...event })),
+  };
+}
+
 function createSession(businessId: string): AuthSession {
   cleanupExpiredSessions();
 
@@ -822,6 +984,16 @@ function getSessionFromRequest(req: Request): AuthSession | null {
   return session;
 }
 
+function getSnapslotAdminSessionTokenFromRequest(req: Request): string | null {
+  const cookies = parseCookieHeader(req.headers.cookie);
+  return cookies[SNAPSLOT_ADMIN_SESSION_COOKIE_NAME] ?? null;
+}
+
+function hasValidSnapslotAdminSession(req: Request): boolean {
+  const token = getSnapslotAdminSessionTokenFromRequest(req);
+  return Boolean(token && snapslotAdminSessions.has(token));
+}
+
 function setSessionCookie(res: Response, sessionId: string): void {
   const maxAgeSeconds = Math.floor(SESSION_MAX_AGE_MS / 1000);
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
@@ -831,11 +1003,27 @@ function setSessionCookie(res: Response, sessionId: string): void {
   );
 }
 
+function setSnapslotAdminSessionCookie(res: Response, token: string): void {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.setHeader(
+    "Set-Cookie",
+    `${SNAPSLOT_ADMIN_SESSION_COOKIE_NAME}=${token}; HttpOnly; Path=/; SameSite=Lax${secure}`
+  );
+}
+
 function clearSessionCookie(res: Response): void {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   res.setHeader(
     "Set-Cookie",
     `${SESSION_COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${secure}`
+  );
+}
+
+function clearSnapslotAdminSessionCookie(res: Response): void {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.setHeader(
+    "Set-Cookie",
+    `${SNAPSLOT_ADMIN_SESSION_COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${secure}`
   );
 }
 

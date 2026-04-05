@@ -14,6 +14,19 @@ export interface PersistedBusinessProfile {
   depositType: "fixed" | "percentage";
   depositAmount: number;
   paymentLabel?: string;
+  subscriptionStatus: "active" | "suspended" | "deactivated";
+  subscriptionStartDate: string;
+  nextBillingDate: string;
+  suspendedAt?: string;
+  cancellationRequestedAt?: string;
+  gdprRetentionFlaggedAt?: string;
+  billingHistory: Array<{
+    id: string;
+    type: string;
+    amountPence?: number;
+    note?: string;
+    createdAt: string;
+  }>;
 }
 
 export interface PersistedService {
@@ -97,6 +110,8 @@ export async function readStoreFile(): Promise<PersistedStoreState> {
 
   const raw = await fs.readFile(DATA_FILE, "utf-8");
   const parsed = JSON.parse(raw) as Partial<PersistedStoreState>;
+  const defaultSubscriptionStartDate = new Date().toISOString();
+  const defaultNextBillingDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
   return {
     businesses: Array.isArray(parsed.businesses)
@@ -106,6 +121,13 @@ export async function readStoreFile(): Promise<PersistedStoreState> {
           depositType: b.depositType ?? "fixed",
           depositAmount: b.depositAmount ?? 0,
           paymentLabel: b.paymentLabel ?? "Deposit",
+          subscriptionStatus: b.subscriptionStatus ?? "active",
+          subscriptionStartDate: b.subscriptionStartDate ?? defaultSubscriptionStartDate,
+          nextBillingDate: b.nextBillingDate ?? defaultNextBillingDate,
+          suspendedAt: b.suspendedAt ?? undefined,
+          cancellationRequestedAt: b.cancellationRequestedAt ?? undefined,
+          gdprRetentionFlaggedAt: b.gdprRetentionFlaggedAt ?? undefined,
+          billingHistory: Array.isArray(b.billingHistory) ? b.billingHistory : [],
         }))
       : [],
     servicesByBusinessId: parsed.servicesByBusinessId ?? {},

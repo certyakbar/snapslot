@@ -8,6 +8,23 @@ export type PaymentStatus =
   | "refunded"
   | "partially_refunded";
 
+export type SubscriptionStatus = "active" | "suspended" | "deactivated";
+
+export interface BillingEvent {
+  id: string;
+  type:
+    | "payment_received"
+    | "payment_failed"
+    | "refund_issued"
+    | "suspended"
+    | "reactivated"
+    | "deactivated"
+    | "cancellation_requested";
+  amountPence?: number;
+  note?: string;
+  createdAt: string;
+}
+
 export interface Service {
   id: string;
   name: string;

@@ -257,6 +257,53 @@
         </div>
       </section>
 
+      <section id="subscription-billing-panel" class="panel">
+        <div class="section-header">
+          <div>
+            <h2>Subscription &amp; Billing</h2>
+            <p class="panel-intro">Review your SnapSlot Pro plan, upcoming billing date, and any cancellation request.</p>
+          </div>
+        </div>
+
+        <div class="grid two-col">
+          <div class="hero-card">
+            <strong>Subscription overview</strong>
+            <div class="detail-list">
+              <span id="subscription-status-pill" class="pill">Loading...</span>
+              <span id="subscription-plan">SnapSlot Pro - £60.00/month</span>
+              <span id="subscription-next-billing">Loading next billing date...</span>
+            </div>
+          </div>
+
+          <div class="hero-card">
+            <strong>Subscription actions</strong>
+            <div class="detail-list">
+              <span id="subscription-cancellation-note">Loading subscription details...</span>
+              <a id="subscription-cancel-link" href="#" class="small-text" hidden>Cancel subscription</a>
+              <div id="subscription-cancel-confirmation" class="hidden">
+                <p id="subscription-cancel-confirmation-text" class="small-text"></p>
+                <div class="action-row">
+                  <button id="confirm-subscription-cancel-button" type="button" class="ghost small">Yes, cancel</button>
+                  <button id="keep-subscription-button" type="button" class="secondary small">Keep my subscription</button>
+                </div>
+              </div>
+            </div>
+            <div id="subscription-message" class="message" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <table style="margin-top: 18px;">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Event</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody id="subscription-history-body"></tbody>
+        </table>
+      </section>
+
       <section id="booking-qr-panel" class="panel">
         <div class="section-header">
           <div>
@@ -467,6 +514,17 @@
       const paymentLabelInput = document.getElementById("payment-label-input");
       const savePaymentConfigButton = document.getElementById("save-payment-config-button");
       const paymentConfigMessage = document.getElementById("payment-config-message");
+      const subscriptionStatusPill = document.getElementById("subscription-status-pill");
+      const subscriptionPlan = document.getElementById("subscription-plan");
+      const subscriptionNextBilling = document.getElementById("subscription-next-billing");
+      const subscriptionCancellationNote = document.getElementById("subscription-cancellation-note");
+      const subscriptionCancelLink = document.getElementById("subscription-cancel-link");
+      const subscriptionCancelConfirmation = document.getElementById("subscription-cancel-confirmation");
+      const subscriptionCancelConfirmationText = document.getElementById("subscription-cancel-confirmation-text");
+      const confirmSubscriptionCancelButton = document.getElementById("confirm-subscription-cancel-button");
+      const keepSubscriptionButton = document.getElementById("keep-subscription-button");
+      const subscriptionHistoryBody = document.getElementById("subscription-history-body");
+      const subscriptionMessage = document.getElementById("subscription-message");
       const bookingsTableBody = document.getElementById("bookings-table-body");
       const bookingMessage = document.getElementById("booking-message");
 
@@ -579,6 +637,153 @@
         } finally {
           savePaymentConfigButton.disabled = false;
           savePaymentConfigButton.textContent = originalLabel;
+        }
+      }
+
+      function applyStatusBadge(target, status) {
+        target.textContent = status;
+        target.className = `pill status-${String(status || "active").toLowerCase()}`;
+      }
+
+      function formatAmountPounds(amountPence) {
+        if (typeof amountPence !== "number") {
+          return "—";
+        }
+
+        return `£${(amountPence / 100).toFixed(2)}`;
+      }
+
+      function formatBusinessBillingEventLabel(type) {
+        switch (type) {
+          case "payment_received":
+            return "Payment received";
+          case "payment_failed":
+            return "Payment failed";
+          case "refund_issued":
+            return "Refund issued";
+          case "cancellation_requested":
+            return "Cancellation requested";
+          default:
+            return String(type || "Unknown event");
+        }
+      }
+
+      function hideSubscriptionConfirmation() {
+        subscriptionCancelConfirmation.classList.add("hidden");
+      }
+
+      function renderSubscriptionHistory(history, timeZone) {
+        const visibleEvents = Array.isArray(history)
+          ? history.filter((event) =>
+              ["payment_received", "payment_failed", "refund_issued", "cancellation_requested"].includes(event.type)
+            )
+          : [];
+
+        if (visibleEvents.length === 0) {
+          subscriptionHistoryBody.innerHTML = `
+            <tr>
+              <td colspan="3" class="muted">No billing events are available yet.</td>
+            </tr>
+          `;
+          return;
+        }
+
+        subscriptionHistoryBody.innerHTML = visibleEvents
+          .slice()
+          .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+          .map(
+            (event) => `
+              <tr>
+                <td>${escapeHtml(formatDateTimeInTimeZone(event.createdAt, timeZone))}</td>
+                <td>${escapeHtml(formatBusinessBillingEventLabel(event.type))}</td>
+                <td>${escapeHtml(formatAmountPounds(event.amountPence))}</td>
+              </tr>
+            `
+          )
+          .join("");
+      }
+
+      async function loadSubscriptionDetails() {
+        if (!qrBusinessId) {
+          setStatusMessage(subscriptionMessage, "Subscription details are unavailable because the business id is missing.", "error");
+          return;
+        }
+
+        try {
+          const business = await loadBusinessContext();
+          const subscription = await requestJson(`/api/business/${encodeURIComponent(qrBusinessId)}/subscription`);
+          const nextBillingText = formatDateTimeInTimeZone(
+            subscription.nextBillingDate,
+            business?.timezone || "UTC"
+          );
+
+          applyStatusBadge(subscriptionStatusPill, subscription.subscriptionStatus || "active");
+          subscriptionPlan.textContent = `SnapSlot Pro - £${Number(subscription.pricePerMonth ?? 60).toFixed(2)}/month`;
+          subscriptionNextBilling.textContent = `Next billing date: ${nextBillingText}`;
+          subscriptionCancelLink.hidden = true;
+          hideSubscriptionConfirmation();
+          clearStatusMessage(subscriptionMessage);
+
+          if (subscription.cancellationRequestedAt) {
+            subscriptionCancellationNote.textContent =
+              `Cancellation requested on ${formatDateTimeInTimeZone(subscription.cancellationRequestedAt, business?.timezone || "UTC")}. Your access continues until ${nextBillingText}.`;
+          } else if (subscription.subscriptionStatus === "active") {
+            subscriptionCancellationNote.textContent = `Your plan renews automatically on ${nextBillingText}.`;
+            subscriptionCancelLink.hidden = false;
+            subscriptionCancelConfirmationText.textContent =
+              `Your access will continue until ${nextBillingText}. You will not be refunded for the current month. Confirm cancellation?`;
+          } else {
+            subscriptionCancellationNote.textContent =
+              `Your business remains signed in, but booking access is unavailable while the subscription is ${subscription.subscriptionStatus}.`;
+          }
+
+          renderSubscriptionHistory(subscription.billingHistory, business?.timezone || "UTC");
+        } catch (error) {
+          setStatusMessage(
+            subscriptionMessage,
+            error instanceof Error ? error.message : "Subscription details could not be loaded.",
+            "error"
+          );
+          subscriptionHistoryBody.innerHTML = `
+            <tr>
+              <td colspan="3" class="muted">Subscription history is unavailable right now.</td>
+            </tr>
+          `;
+        }
+      }
+
+      async function requestSubscriptionCancellation() {
+        if (!qrBusinessId) {
+          return;
+        }
+
+        const originalLabel = confirmSubscriptionCancelButton.textContent;
+        confirmSubscriptionCancelButton.disabled = true;
+        keepSubscriptionButton.disabled = true;
+        confirmSubscriptionCancelButton.textContent = "Saving...";
+
+        try {
+          const response = await requestJson(`/api/business/${encodeURIComponent(qrBusinessId)}/subscription/cancel`, {
+            method: "POST",
+          });
+
+          setStatusMessage(
+            subscriptionMessage,
+            response?.message || "Cancellation requested. Your access continues until your next billing date.",
+            "success"
+          );
+          hideSubscriptionConfirmation();
+          await loadSubscriptionDetails();
+        } catch (error) {
+          setStatusMessage(
+            subscriptionMessage,
+            error instanceof Error ? error.message : "Subscription cancellation could not be requested.",
+            "error"
+          );
+        } finally {
+          confirmSubscriptionCancelButton.disabled = false;
+          keepSubscriptionButton.disabled = false;
+          confirmSubscriptionCancelButton.textContent = originalLabel;
         }
       }
 
@@ -802,6 +1007,17 @@
       savePaymentConfigButton.addEventListener("click", () => {
         savePaymentConfig().catch(console.error);
       });
+      subscriptionCancelLink.addEventListener("click", (event) => {
+        event.preventDefault();
+        subscriptionCancelConfirmation.classList.remove("hidden");
+        clearStatusMessage(subscriptionMessage);
+      });
+      confirmSubscriptionCancelButton.addEventListener("click", () => {
+        requestSubscriptionCancellation().catch(console.error);
+      });
+      keepSubscriptionButton.addEventListener("click", () => {
+        hideSubscriptionConfirmation();
+      });
 
       bookingsTableBody.addEventListener("click", (event) => {
         const target = event.target;
@@ -829,6 +1045,7 @@
       syncPaymentAmountLabel();
       loadBookingQrCode().catch(console.error);
       loadPaymentConfig().catch(console.error);
+      loadSubscriptionDetails().catch(console.error);
       scheduleBookingsRefresh();
     </script>
   </body>

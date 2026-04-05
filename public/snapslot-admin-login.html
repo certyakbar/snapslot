@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SnapSlot Platform Admin Login</title>
+    <link rel="stylesheet" href="/css/snapslot-theme.css" />
+  </head>
+  <body class="snapslot-auth body-login">
+    <main class="page">
+      <section class="panel">
+        <p class="small-text">SnapSlot platform admin</p>
+        <h1>Sign in to the platform admin</h1>
+        <p class="panel-intro">Use the platform password to review subscriptions, billing events, and account suspensions.</p>
+
+        <form id="snapslot-admin-login-form" novalidate>
+          <div>
+            <label for="snapslot-admin-password">Password</label>
+            <input id="snapslot-admin-password" type="password" autocomplete="current-password" required />
+          </div>
+
+          <button id="snapslot-admin-login-button" class="primary-button" type="submit">Sign in</button>
+          <div id="snapslot-admin-login-message" class="message" aria-live="polite"></div>
+        </form>
+      </section>
+    </main>
+
+    <script type="module">
+      import { clearStatusMessage, setStatusMessage } from "/js/ui-copy.js";
+
+      const form = document.getElementById("snapslot-admin-login-form");
+      const passwordInput = document.getElementById("snapslot-admin-password");
+      const submitButton = document.getElementById("snapslot-admin-login-button");
+      const message = document.getElementById("snapslot-admin-login-message");
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        clearStatusMessage(message);
+
+        const password = passwordInput.value;
+        if (!password) {
+          setStatusMessage(message, "Incorrect password.", "error");
+          return;
+        }
+
+        const originalLabel = submitButton.textContent;
+        submitButton.disabled = true;
+        submitButton.textContent = "Signing in...";
+
+        try {
+          const response = await fetch("/api/snapslot-admin/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password }),
+          });
+
+          const payload = await response.json().catch(() => ({}));
+          if (response.status === 401) {
+            setStatusMessage(message, "Incorrect password.", "error");
+            return;
+          }
+
+          if (!response.ok) {
+            throw new Error(payload?.error || "Sign-in failed.");
+          }
+
+          window.location.href = "/snapslot-admin";
+        } catch (error) {
+          setStatusMessage(message, error instanceof Error ? error.message : "Sign-in failed.", "error");
+        } finally {
+          submitButton.disabled = false;
+          submitButton.textContent = originalLabel;
+        }
+      });
+    </script>
+  </body>
+</html>

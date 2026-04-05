@@ -1,11 +1,13 @@
 import type {
   AvailableSlot,
+  BillingEvent,
   BlockedTime,
   BookingComputation,
   CustomerDetails,
   ExistingBooking,
   PaymentStatus,
   Service,
+  SubscriptionStatus,
   WeeklyAvailability,
 } from "./bookingCore.ts";
 
@@ -34,6 +36,7 @@ import { readStoreFile, writeStoreFile } from "./Persistence.ts";
 import { HttpError } from "./errors.ts";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const SUBSCRIPTION_PRICE_PENCE = 6000;
 
 export interface BusinessProfile {
   id: string;
@@ -48,6 +51,13 @@ export interface BusinessProfile {
   depositType?: "fixed" | "percentage";
   depositAmount?: number;
   paymentLabel?: string;
+  subscriptionStatus?: SubscriptionStatus;
+  subscriptionStartDate?: string;
+  nextBillingDate?: string;
+  suspendedAt?: string;
+  cancellationRequestedAt?: string;
+  gdprRetentionFlaggedAt?: string;
+  billingHistory?: BillingEvent[];
 }
 
 export interface BusinessView {
@@ -58,6 +68,12 @@ export interface BusinessView {
   timezone: string;
   bookingPageSlug: string;
   paymentConfig: PaymentConfig;
+  subscriptionStatus: SubscriptionStatus;
+  subscriptionStartDate: string;
+  nextBillingDate: string;
+  suspendedAt?: string;
+  cancellationRequestedAt?: string;
+  billingHistory: BillingEvent[];
 }
 
 export interface PaymentConfig {
@@ -196,12 +212,21 @@ export class BookingStore {
       throw new HttpError(400, "That business email is already in use.");
     }
 
+    const now = new Date();
     const normalizedProfile: BusinessProfile = {
       ...profile,
       depositEnabled: profile.depositEnabled ?? false,
       depositType: profile.depositType ?? "fixed",
       depositAmount: profile.depositAmount ?? 0,
       paymentLabel: profile.paymentLabel ?? "Deposit",
+      subscriptionStatus: profile.subscriptionStatus ?? "active",
+      subscriptionStartDate: profile.subscriptionStartDate ?? now.toISOString(),
+      nextBillingDate:
+        profile.nextBillingDate ?? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      suspendedAt: profile.suspendedAt ?? undefined,
+      cancellationRequestedAt: profile.cancellationRequestedAt ?? undefined,
+      gdprRetentionFlaggedAt: profile.gdprRetentionFlaggedAt ?? undefined,
+      billingHistory: this.cloneBillingHistory(profile.billingHistory ?? []),
     };
 
     const nextState = this.cloneState();
@@ -217,6 +242,13 @@ export class BookingStore {
 
   listBusinesses(): BusinessProfile[] {
     return [...this.state.businesses];
+  }
+
+  listAllBusinessesForAdmin(): BusinessProfile[] {
+    return this.state.businesses.map((business) => ({
+      ...business,
+      billingHistory: this.cloneBillingHistory(business.billingHistory ?? []),
+    }));
   }
 
   listAuthIncompleteBusinesses(): Array<Pick<BusinessProfile, "id" | "name" | "bookingPageSlug">> {
@@ -236,21 +268,7 @@ export class BookingStore {
   }
 
   getBusinessView(businessId: string): BusinessView {
-    const business = this.getBusiness(businessId);
-    return {
-      id: business.id,
-      name: business.name,
-      ownerName: business.ownerName,
-      ownerEmail: business.ownerEmail,
-      timezone: business.timezone,
-      bookingPageSlug: business.bookingPageSlug,
-      paymentConfig: {
-        depositEnabled: business.depositEnabled ?? false,
-        depositType: business.depositType ?? "fixed",
-        depositAmount: business.depositAmount ?? 0,
-        paymentLabel: business.paymentLabel ?? "Deposit",
-      },
-    };
+    return this.toBusinessView(this.getBusiness(businessId));
   }
 
   getBusinessBySlug(bookingPageSlug: string): BusinessProfile {
@@ -357,6 +375,135 @@ export class BookingStore {
     return {
       ...config,
       paymentLabel: config.paymentLabel.trim(),
+    };
+  }
+
+  async applyBillingAction(
+    businessId: string,
+    action: "mark_paid" | "suspend" | "reactivate" | "deactivate" | "refund",
+    note?: string
+  ): Promise<BusinessProfile> {
+    const nextState = this.cloneState();
+    const business = nextState.businesses.find((item) => item.id === businessId);
+
+    if (!business) {
+      throw new HttpError(400, "Business was not found.");
+    }
+
+    const now = new Date();
+    const trimmedNote = typeof note === "string" && note.trim() ? note.trim() : undefined;
+    const appendBillingEvent = (type: BillingEvent["type"], amountPence?: number) => {
+      const history = business.billingHistory ?? [];
+      history.push({
+        id: this.createId("bill"),
+        type,
+        amountPence,
+        note: trimmedNote,
+        createdAt: now.toISOString(),
+      });
+      business.billingHistory = history;
+    };
+
+    switch (action) {
+      case "mark_paid": {
+        if (business.subscriptionStatus === "deactivated") {
+          throw new HttpError(
+            400,
+            `Cannot apply '${action}' to a business with status '${business.subscriptionStatus}'.`
+          );
+        }
+
+        const currentBillingDate = new Date(business.nextBillingDate ?? now.toISOString());
+        const baseBillingTime = Number.isNaN(currentBillingDate.getTime())
+          ? now.getTime()
+          : currentBillingDate.getTime();
+        business.nextBillingDate = new Date(baseBillingTime + 30 * 24 * 60 * 60 * 1000).toISOString();
+        business.suspendedAt = undefined;
+        business.cancellationRequestedAt = undefined;
+        business.subscriptionStatus = "active";
+        appendBillingEvent("payment_received", SUBSCRIPTION_PRICE_PENCE);
+        break;
+      }
+      case "suspend":
+        if (business.subscriptionStatus !== "active") {
+          throw new HttpError(
+            400,
+            `Cannot apply '${action}' to a business with status '${business.subscriptionStatus}'.`
+          );
+        }
+        business.subscriptionStatus = "suspended";
+        business.suspendedAt = now.toISOString();
+        appendBillingEvent("suspended");
+        break;
+      case "reactivate":
+        if (business.subscriptionStatus !== "suspended") {
+          throw new HttpError(
+            400,
+            `Cannot apply '${action}' to a business with status '${business.subscriptionStatus}'.`
+          );
+        }
+        business.subscriptionStatus = "active";
+        business.suspendedAt = undefined;
+        appendBillingEvent("reactivated");
+        break;
+      case "deactivate":
+        if (business.subscriptionStatus !== "suspended") {
+          throw new HttpError(
+            400,
+            `Cannot apply '${action}' to a business with status '${business.subscriptionStatus}'.`
+          );
+        }
+        business.subscriptionStatus = "deactivated";
+        business.gdprRetentionFlaggedAt = now.toISOString();
+        appendBillingEvent("deactivated");
+        break;
+      case "refund":
+        appendBillingEvent("refund_issued", SUBSCRIPTION_PRICE_PENCE);
+        break;
+      default:
+        throw new HttpError(400, "Invalid billing action.");
+    }
+
+    await this.persistState(nextState);
+    return {
+      ...business,
+      billingHistory: this.cloneBillingHistory(business.billingHistory ?? []),
+    };
+  }
+
+  async requestCancellation(businessId: string): Promise<BusinessProfile> {
+    const nextState = this.cloneState();
+    const business = nextState.businesses.find((item) => item.id === businessId);
+
+    if (!business) {
+      throw new HttpError(400, "Business was not found.");
+    }
+
+    if (business.subscriptionStatus !== "active") {
+      throw new HttpError(
+        400,
+        `Cannot apply 'cancellation_requested' to a business with status '${business.subscriptionStatus}'.`
+      );
+    }
+
+    if (business.cancellationRequestedAt) {
+      throw new HttpError(400, "Cancellation has already been requested.");
+    }
+
+    const now = new Date().toISOString();
+    business.cancellationRequestedAt = now;
+    const history = business.billingHistory ?? [];
+    history.push({
+      id: this.createId("bill"),
+      type: "cancellation_requested",
+      createdAt: now,
+    });
+    business.billingHistory = history;
+
+    await this.persistState(nextState);
+    return {
+      ...business,
+      billingHistory: this.cloneBillingHistory(business.billingHistory ?? []),
     };
   }
 
@@ -947,6 +1094,8 @@ export class BookingStore {
 
   private async loadFromDisk(): Promise<void> {
     const persisted = await readStoreFile();
+    const defaultSubscriptionStartDate = new Date().toISOString();
+    const defaultNextBillingDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
     this.state.businesses = persisted.businesses.map((business) => ({
       ...business,
@@ -958,6 +1107,13 @@ export class BookingStore {
       depositType: business.depositType ?? "fixed",
       depositAmount: business.depositAmount ?? 0,
       paymentLabel: business.paymentLabel ?? "Deposit",
+      subscriptionStatus: business.subscriptionStatus ?? "active",
+      subscriptionStartDate: business.subscriptionStartDate ?? defaultSubscriptionStartDate,
+      nextBillingDate: business.nextBillingDate ?? defaultNextBillingDate,
+      suspendedAt: business.suspendedAt ?? undefined,
+      cancellationRequestedAt: business.cancellationRequestedAt ?? undefined,
+      gdprRetentionFlaggedAt: business.gdprRetentionFlaggedAt ?? undefined,
+      billingHistory: this.cloneBillingHistory(business.billingHistory ?? []),
     }));
     this.state.services = new Map(
       Object.entries(persisted.servicesByBusinessId).map(([businessId, services]) => [
@@ -1000,7 +1156,10 @@ export class BookingStore {
 
   private cloneState(): StoreState {
     return {
-      businesses: this.state.businesses.map((business) => ({ ...business })),
+      businesses: this.state.businesses.map((business) => ({
+        ...business,
+        billingHistory: this.cloneBillingHistory(business.billingHistory ?? []),
+      })),
       services: new Map(
         Array.from(this.state.services.entries()).map(([businessId, services]) => [
           businessId,
@@ -1057,6 +1216,14 @@ export class BookingStore {
         depositType: business.depositType ?? "fixed",
         depositAmount: business.depositAmount ?? 0,
         paymentLabel: business.paymentLabel ?? "Deposit",
+        subscriptionStatus: business.subscriptionStatus ?? "active",
+        subscriptionStartDate: business.subscriptionStartDate ?? new Date().toISOString(),
+        nextBillingDate:
+          business.nextBillingDate ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        suspendedAt: business.suspendedAt ?? undefined,
+        cancellationRequestedAt: business.cancellationRequestedAt ?? undefined,
+        gdprRetentionFlaggedAt: business.gdprRetentionFlaggedAt ?? undefined,
+        billingHistory: this.cloneBillingHistory(business.billingHistory ?? []),
       })),
       servicesByBusinessId: Object.fromEntries(
         Array.from(state.services.entries()).map(([businessId, services]) => [
@@ -1111,6 +1278,31 @@ export class BookingStore {
         depositAmount: business.depositAmount ?? 0,
         paymentLabel: business.paymentLabel ?? "Deposit",
       },
+      subscriptionStatus: business.subscriptionStatus ?? "active",
+      subscriptionStartDate: business.subscriptionStartDate ?? new Date().toISOString(),
+      nextBillingDate:
+        business.nextBillingDate ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      suspendedAt: business.suspendedAt ?? undefined,
+      cancellationRequestedAt: business.cancellationRequestedAt ?? undefined,
+      billingHistory: this.cloneBillingHistory(business.billingHistory ?? []),
     };
+  }
+
+  private cloneBillingHistory(
+    events: Array<{
+      id: string;
+      type: string;
+      amountPence?: number;
+      note?: string;
+      createdAt: string;
+    }>
+  ): BillingEvent[] {
+    return events.map((event) => ({
+      id: event.id,
+      type: event.type as BillingEvent["type"],
+      amountPence: event.amountPence,
+      note: event.note,
+      createdAt: event.createdAt,
+    }));
   }
 }
