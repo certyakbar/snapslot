@@ -740,3 +740,392 @@ If the answer is unclear, Claude must default to oversight and prompt Codex inst
 ### Absolute rule
 Claude must remain the controller, not the unreviewed implementer.
 Codex must remain the implementer, not the self-governing architect.
+
+## BACKEND + FRONTEND DOMAIN FIDELITY PROTOCOL
+
+Claude must not judge system quality by:
+- “feature exists”
+- “route works”
+- “UI looks right”
+- “test passes once”
+- “happy path succeeded”
+
+Claude must judge every feature against **domain fidelity**:
+the small but critical rules that real production booking, payment, refund, notification, subscription, and admin systems must get right at micro-detail level.
+
+### Core rule
+If a feature is implemented without the real operational rules mature systems depend on, it is **not finished**, even if:
+- the route works
+- the UI renders
+- the state updates once
+- the demo looks correct
+
+Claude must assume that small hidden mistakes are more dangerous than visible missing features.
+
+### Absolute parity rule
+Frontend and backend must describe the **same truth**.
+
+That means:
+- the UI must not imply stronger guarantees than the backend actually enforces
+- the backend must not expose states or actions the UI cannot represent truthfully
+- wording, labels, statuses, buttons, and flows must match real lifecycle truth
+- no frontend message may claim “confirmed”, “paid”, “refunded”, “cancelled”, “successful”, or “active” unless backend truth matches exactly
+- no backend state may exist in a vague, hidden, or half-supported form that the UI cannot explain honestly
+
+If frontend and backend differ even slightly in meaning, the feature is **PARTIAL**, **UNPROVEN**, or **BLOCKED**.
+
+---
+
+## FEATURE COMPLETION LAW
+
+A feature is not complete because it exists.
+A feature is complete only when all of the following are true:
+
+1. the data model supports it correctly
+2. the backend lifecycle supports it correctly
+3. the frontend flow reflects it correctly
+4. validation rules enforce it correctly
+5. failure paths behave safely
+6. repeat actions behave safely
+7. cross-tenant isolation is preserved
+8. side effects are correct
+9. copy and labels tell the truth
+10. proof exists
+
+If even one of those is missing, the feature is not DONE.
+
+---
+
+## REQUIRED DOMAIN AUDIT DIMENSIONS
+
+For every meaningful feature, Claude must explicitly check all of the following.
+
+### 1. State model correctness
+- all states are explicit
+- state meaning is explicit
+- legal transitions are explicit
+- illegal transitions are blocked
+- terminal states are respected
+- every mutation has a clear reason
+- state does not jump silently
+- state changes are reproducible and auditable
+- frontend labels map 1:1 to backend state truth
+
+### 2. Validation correctness
+- required fields are enforced
+- invalid values are rejected
+- empty, malformed, duplicated, and boundary values are handled
+- business rules are enforced server-side
+- frontend validation is convenience only, never source of truth
+- partial payloads do not accidentally bypass rules
+- invalid transitions fail explicitly, not implicitly
+
+### 3. Isolation correctness
+- feature stays inside the owning business/account
+- no route leaks cross-tenant data
+- no state contamination between businesses
+- payment configuration is isolated
+- public booking flow is isolated
+- QR/share flows are isolated
+- notifications are scoped to the correct business/customer
+- subscriptions and billing never cross tenant boundaries
+
+### 4. Time correctness
+- canonical time handling is deliberate
+- timezone behavior is explicit
+- UTC vs local business time is consistent
+- midnight crossover is handled
+- blocked times spanning date boundaries are handled
+- daylight-saving assumptions are not silently broken
+- slot generation is deterministic
+- stored time and displayed time do not contradict each other
+
+### 5. Money correctness
+- money values are stored and processed safely
+- minor units / exact units are consistent
+- rounding rules are explicit
+- deposit and refund amounts are auditable
+- percentage vs fixed calculations are explicit
+- payment labels do not alter payment truth
+- display money and stored money are never confused
+- partial refund semantics are explicit
+- free bookings, zero-value deposits, and zero balances are deliberate, not accidental
+
+### 6. Side-effect correctness
+- notifications fire at the correct lifecycle point
+- notification failure does not corrupt core truth
+- retries do not silently duplicate notifications
+- notification content matches actual state
+- side effects are derived from state, not treated as state itself
+- email sending, refund messages, payment-required messages, and reschedule messages all match the real event that occurred
+
+### 7. Retry and idempotency correctness
+- repeated requests do not duplicate bookings
+- repeated payment actions do not double-apply payment state
+- repeated refund actions do not double-refund
+- repeated cancel actions do not corrupt state
+- repeated subscription actions do not duplicate billing effects
+- duplicate notifications are prevented or explicitly tolerated with reason
+- the system behaves safely under refreshes, retries, and racey user behavior
+
+### 8. Concurrency correctness
+- near-simultaneous actions do not corrupt booking state
+- admin actions do not race into impossible states
+- payment/refund/cancel/reschedule actions are safe under concurrent access
+- current proof scope is stated honestly
+- single-process proof is not misrepresented as multi-instance proof
+- locking, sequencing, or safe rejection exists where required
+
+### 9. Auditability correctness
+- the system can explain what happened later
+- booking status changes are reconstructable
+- payment status changes are reconstructable
+- refund events are reconstructable
+- notifications sent are explainable
+- subscription changes are reconstructable
+- support/debug/dispute review is possible from preserved truth
+
+### 10. Failure-path correctness
+- payment failure behavior is explicit
+- refund failure behavior is explicit
+- notification failure behavior is explicit
+- external dependency failure behavior is explicit
+- bad input failure behavior is explicit
+- unauthorized access failure behavior is explicit
+- the system fails safely, not partially and ambiguously
+- no half-finished mutation may be presented as success
+
+### 11. Copy truth correctness
+- every user-facing message tells the exact truth
+- “confirmed” is only used when actually confirmed
+- “reserved pending payment” is not mislabeled as “confirmed”
+- refund copy matches actual refund state
+- cancellation copy matches actual cancellation truth
+- subscription copy matches actual billing state
+- no fake reassurance
+- no optimistic lie
+
+### 12. UI/backend contract correctness
+- every button maps to a valid backend action
+- every backend action has a truthful UI path
+- unsupported backend actions do not appear in UI
+- unsupported UI actions do not exist
+- loading, success, and error states reflect actual backend outcomes
+- UI does not patch over backend weakness with wording tricks
+- hidden scripts, monkey-patches, or duplicate handlers do not create competing truths
+
+---
+
+## BOOKING-SYSTEM DOMAIN DEFAULTS
+
+Unless the Constitution explicitly says otherwise, Claude must assume:
+
+- bookings are authoritative server-side only
+- availability is computed, never trusted from client input
+- slot eligibility is computed from real service duration, buffer, availability, blocked times, existing bookings, and timezone
+- booking confirmation wording must match payment state
+- bookings can be reserved pending payment without being fully confirmed
+- refunds are lifecycle events, not just UI labels
+- notifications are side effects, not truth
+- public booking flows must stay isolation-safe
+- lifecycle logic must be testable without UI
+- admin convenience must never weaken booking integrity
+
+---
+
+## BOOKING FLOW MICRO-LAW
+
+For any booking-related work, Claude must verify:
+
+- slot selected was actually valid at backend time of booking
+- chosen services were valid and active
+- start time was not in the past
+- booking did not overlap another active booking
+- blocked time was respected
+- timezone was respected
+- payment requirement was applied correctly
+- resulting booking state is correct
+- resulting payment state is correct
+- customer-facing message matches booking/payment truth
+- business-facing visibility matches booking/payment truth
+- retry or refresh cannot silently duplicate the booking
+
+---
+
+## PAYMENT + DEPOSIT MICRO-LAW
+
+For any payment or deposit work, Claude must verify:
+
+- payment state model exists and is explicit
+- deposit requirement is business-controlled and isolated
+- deposit calculation is deterministic
+- fixed and percentage logic are both valid
+- payment label is presentation only unless deliberately part of business config truth
+- booking state and payment state cannot contradict each other
+- payment-required messaging is truthful
+- payment-received transition is truthful
+- failed payment does not silently confirm booking
+- refunded / partially_refunded behavior is explicit
+- UI does not imply money was captured if backend only marked intent
+- no “paid” status exists without a valid lifecycle reason
+
+---
+
+## REFUND MICRO-LAW
+
+For any refund work, Claude must verify:
+
+- refund trigger rules are explicit
+- refund amount rules are explicit
+- full vs partial refund semantics are explicit
+- refund state transition is explicit
+- booking state after refund is explicit
+- duplicate refund attempts are safe
+- refund failure behavior is explicit
+- refund notification triggers only after valid refund state change
+- refund copy matches actual backend truth
+- billing history can reconstruct refund events
+
+---
+
+## NOTIFICATION MICRO-LAW
+
+For any notification work, Claude must verify:
+
+- event source is explicit
+- event timing is correct
+- booking/payment/refund/subscription state is already correct or safely sequenced by design
+- notification failure does not alter core truth
+- duplicate trigger risk is addressed
+- business and customer recipients are correct
+- message subject/body truthfully reflect the real lifecycle event
+- no notification claims a stronger state than backend truth
+
+---
+
+## SUBSCRIPTION + BILLING MICRO-LAW
+
+For any subscription or billing work, Claude must verify:
+
+- plan state exists
+- billing interval is named, not scattered magic numbers
+- billing anchor/start is explicit
+- renewal logic is explicit
+- cancellation logic is explicit
+- grace/expiry logic is explicit if used
+- plan change behavior is explicit
+- billing history is reconstructable
+- subscriptions never silently mutate unrelated booking behavior
+- admin UI reflects true subscription state
+- customer/business messaging reflects true billing state
+
+---
+
+## ADMIN ACTION MICRO-LAW
+
+For any admin feature, Claude must verify:
+
+- admin actions belong only to the owning business
+- actions cannot corrupt booking state
+- actions cannot corrupt payment state
+- dangerous actions require truthful feedback
+- stale UI cannot silently mislead admin behavior
+- repeated admin clicks do not create duplicate effects
+- admin dashboard labels reflect real backend truth
+- no placeholder or fake control is shown
+
+---
+
+## PUBLIC/CUSTOMER FLOW MICRO-LAW
+
+For any public booking flow, Claude must verify:
+
+- flow is scoped only to the target business
+- customer sees only active, valid services
+- customer sees only valid slots
+- customer cannot book another tenant’s resources
+- customer confirmation message matches backend truth
+- payment-required message matches backend truth
+- UI does not imply instant confirmation if deposit is pending
+- share/QR flow opens the correct business page only
+
+---
+
+## DATA MODEL + API CONTRACT LAW
+
+Claude must verify that every feature has:
+- explicit persisted fields where needed
+- explicit server response shape
+- no hidden state dependence
+- no ambiguous nullable behavior without reason
+- no UI dependency on unstable payload meaning
+- no route returning misleading success with partial failure underneath
+- no two fields that imply conflicting truths
+
+---
+
+## DEFINITION OF DONE — UNFORGIVING VERSION
+
+A feature is not DONE unless Claude can account for all of the following:
+
+- state model
+- legal and illegal transitions
+- validation
+- isolation
+- time handling
+- money handling where relevant
+- side effects
+- retry safety
+- concurrency implications
+- failure behavior
+- auditability
+- frontend/backend copy parity
+- frontend/backend action parity
+- proof/tests
+- honest docs alignment
+
+Missing one means:
+- PARTIAL
+- UNPROVEN
+- or BLOCKED
+
+Never DONE.
+
+---
+
+## REQUIRED CLAUDE BEHAVIOR
+
+When reviewing backend or full-stack work, Claude must not stop at:
+- route exists
+- UI renders
+- test passes
+- feature works once
+
+Claude must ask:
+- what is the exact lifecycle
+- what transitions are legal
+- what transitions are forbidden
+- what does retry do
+- what does failure do
+- what does concurrency do
+- what does tenant isolation do
+- what does time do
+- what does money do
+- what does notification do
+- what does refund do
+- what does subscription renewal/cancellation do
+- does frontend wording match backend truth exactly
+- what would a mature system require here by default
+
+If those answers are missing, the work must be marked:
+- PARTIAL
+- UNPROVEN
+- or BLOCKED
+
+not DONE.
+
+### Absolute rule
+Claude must treat micro-detail correctness as part of the feature, not an optional refinement.
+
+If frontend and backend do not match exactly, if lifecycle rules are incomplete, or if hidden production-grade behaviors are unaccounted for, there is no mercy:
+the feature is not finished.
