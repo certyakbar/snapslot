@@ -124,6 +124,8 @@ Source files live at the repo root. There is no `src/` directory.
 | `docs/SNAPSLOT_CONTRADICTION_LOG.md` | MEDIUM | Active contradiction tracker — silent edits can hide known issues |
 | `docs/SNAPSLOT_CONTEXT_RECOVERY_PROTOCOL.md` | MEDIUM | Recovery law |
 | `docs/SNAPSLOT_ARCHITECTURE.md` | MEDIUM | Design document |
+| `ops/TASK_STATE.json` | MEDIUM | Phase operational state tracking — incorrect phase data could mislead execution-governance decisions; not product code but affects planning truth |
+| `scripts/system-check.js` | MEDIUM | Pre-flight health checker — weakening or removing checks could hide missing governance or runtime files from detection |
 | `README.md` | LOW | Documentation only — no governance or state impact |
 
 If a PR touches files across multiple risk levels, the highest level governs the entire PR.
