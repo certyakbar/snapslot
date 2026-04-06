@@ -66,22 +66,30 @@ Block on failure: yes
 The Sentinel inspects the PR body for required control fields.
 A PR that does not contain these fields is SENTINEL-FAIL regardless of A1 and A2.
 
+For each Group B check, the Sentinel uses machine-readable HTML comment anchors and section
+markers as the primary source (see §10 for the full anchor contract). Visible markdown fields
+are used as a fallback only, for PRs authored before the machine-readable layer was introduced.
+See §10.3 for the exact parsing precedence.
+
 **B1. Task packet ID**
-Pattern: `Task ID:` followed by a `T-` prefixed value (not a placeholder comment)
+Primary: machine-readable anchor `<!-- SENTINEL:task_id=... -->` — value must match `T-\S+`
+Fallback: `Task ID:` followed by a `T-` prefixed value (not a placeholder comment)
 Block on failure: yes
 
 **B2. Risk tier declared**
-Pattern: `Risk level:` followed by one of: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`
+Primary: machine-readable anchor `<!-- SENTINEL:risk=... -->` — value must be one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`
+Fallback: `Risk level:` followed by one of: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`
 Block on failure: yes
 
 **B3. Allowed files declaration**
-Pattern: `Files changed` section with at least one line beginning with `- ` or `* `
-(not just a placeholder comment)
+Primary: content between `<!-- SENTINEL:FILES_BEGIN -->` and `<!-- SENTINEL:FILES_END -->` markers — must contain at least one file path line
+Fallback: `Files changed` section with at least one line beginning with `- ` or `* ` (not just a placeholder comment)
 Block on failure: yes
 
 **B4. Ledger / doc impact declared**
-Pattern: `Ledger impact` section present and the placeholder row is replaced with real content
-or the word `None` explicitly appears in the section
+Primary: anchor `<!-- SENTINEL:ledger=NONE -->` with body exactly `None` between `LEDGER_BEGIN` / `LEDGER_END` markers,
+or anchor `<!-- SENTINEL:ledger=AFFECTED -->` with a real markdown table (at least one non-placeholder row) between those markers
+Fallback: `Ledger impact` section with the word `None` explicitly present, or a real table row not containing placeholder markers
 Block on failure: yes
 
 ### Group C — Protected-path / risk alignment checks
@@ -111,8 +119,9 @@ the declared risk level must be `CRITICAL` or `HIGH`.
 Block on failure: yes
 
 **C3. Declared scope vs actual diff — exact equivalence**
-The Sentinel parses the file list from the "Files changed" section of the PR body and
-compares it to the actual changed files fetched from the GitHub API.
+The Sentinel parses the file list from between the `FILES_BEGIN` / `FILES_END` section markers
+(falling back to the "Files changed" section heading if markers are absent) and compares it
+to the actual changed files fetched from the GitHub API.
 
 The comparison is exact in both directions:
 - Files in the actual diff but missing from the declared list → scope-drift violation
@@ -266,3 +275,121 @@ They must not be masked or suppressed inside the current PR.
 This file is operational control, not product law.
 If this file conflicts with docs/SNAPSLOT_CONSTITUTION.md, the Constitution wins.
 If this file conflicts with CLAUDE.md, CLAUDE.md wins.
+
+
+---
+
+## 10. PR template machine-readable anchors
+
+The PR body contains a small machine-readable control layer in HTML comments.
+These anchors are the Sentinel's preferred source of truth for Group B checks.
+
+### 10.1 Required anchors
+
+The PR template must contain these exact comment keys:
+
+```html
+<!-- SENTINEL:task_id=REPLACE_TASK_ID -->
+<!-- SENTINEL:risk=REPLACE_RISK -->
+<!-- SENTINEL:ledger=NONE -->
+```
+
+Allowed values:
+
+- `task_id`: must match `T-\S+`
+- `risk`: one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`
+- `ledger`: one of `NONE`, `AFFECTED`
+
+The Sentinel reads these anchors first.
+Legacy visible markdown fields remain in the template for human review and are used only as a fallback during transition.
+
+### 10.2 Section markers
+
+The PR template also contains explicit section markers for machine extraction:
+
+```html
+<!-- SENTINEL:FILES_BEGIN -->
+<!-- SENTINEL:FILES_END -->
+<!-- SENTINEL:LEDGER_BEGIN -->
+<!-- SENTINEL:LEDGER_END -->
+```
+
+Rules:
+
+- The declared changed-file list must live between `FILES_BEGIN` and `FILES_END`
+- The ledger body must live between `LEDGER_BEGIN` and `LEDGER_END`
+- If `ledger=NONE`, the ledger body must be exactly `None`
+- If `ledger=AFFECTED`, the ledger body must contain a real markdown table with at least one non-placeholder data row
+
+### 10.3 Parser precedence
+
+Group B parsing order:
+
+1. machine-readable anchors / section markers
+2. legacy visible markdown fields as fallback only
+
+This keeps the PR readable for the Governor while reducing wording-sensitive failures for honest PRs.
+
+### 10.4 Why HTML comments are used
+
+HTML comments are:
+
+- present in raw PR body text for deterministic parsing
+- invisible in the rendered PR view
+- resilient to section reordering and prose edits
+- lighter-weight than requiring a committed metadata artifact immediately
+
+A committed machine-readable artifact may be added later, but anchors are the current-phase enforcement mechanism.
+
+---
+
+## 11. Branch protection and check-run requirements
+
+Repo files alone do not create a hard merge gate.
+SnapSlot enforcement is only real when GitHub branch protection (or an equivalent ruleset) is configured on `main`.
+
+### 11.1 Required repository settings
+
+At minimum, `main` must enforce:
+
+- Require a pull request before merging
+- Require status checks to pass before merging
+- Require review from Code Owners
+- Dismiss stale approvals when new commits are pushed
+- Do not allow bypassing the above settings
+- Block force pushes
+- Block deletions
+
+### 11.2 Required status check name
+
+Do **not** guess the required status check name in GitHub settings.
+
+After a live post-merge test run, record the exact required check name here and in the repository settings checklist:
+
+- Required check name: **TO BE VERIFIED FROM LIVE GITHUB CHECKS UI — DO NOT GUESS**
+
+Any workflow/job rename that changes the live check name must be treated as a governance change and must be synchronized with GitHub branch protection settings.
+
+### 11.3 Comment-triggered rechecks
+
+`issue_comment` workflows do not naturally attach their implicit workflow check to the PR head SHA.
+To keep Governor verdict comments operationally useful, the Sentinel uses the Checks API from the comment-trigger path.
+
+Required conditions:
+
+- workflow permission `checks: write`
+- PR head SHA fetched explicitly from the PR API
+- explicit check run created with the canonical Sentinel check name on that PR head SHA
+
+Without this, a Governor APPROVE comment can re-run the Sentinel but still fail to satisfy branch protection.
+
+### 11.4 Enforcement proof required
+
+Before the system may be called hardened, SnapSlot must prove all of the following on a sacrificial test PR:
+
+- malformed governance metadata fails
+- valid governance metadata passes
+- a HIGH or CRITICAL PR without Governor APPROVE stays blocked
+- a Governor APPROVE comment produces a passing Sentinel check on the correct PR head SHA
+- a Governor BLOCK comment forces failure at any risk level
+- branch protection prevents even `@certyakbar` from merging a failing PR
