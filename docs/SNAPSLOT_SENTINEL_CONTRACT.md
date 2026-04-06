@@ -354,19 +354,28 @@ At minimum, `main` must enforce:
 
 - Require a pull request before merging
 - Require status checks to pass before merging
-- Require review from Code Owners
-- Dismiss stale approvals when new commits are pushed
 - Do not allow bypassing the above settings
 - Block force pushes
 - Block deletions
 
+**One-owner repo note:** Required approving reviews and Code Owner review enforcement are not
+active in this repository. In a one-owner repo, the sole owner (`@certyakbar`) cannot approve
+their own pull requests; requiring approving reviews creates an unresolvable deadlock — there is
+no eligible reviewer to request. This was discovered empirically during the sacrificial proof
+exercise and the branch protection configuration was adjusted to remove required approving reviews.
+The active hard merge gate is the required Sentinel status check, not approving reviews.
+
 ### 11.2 Required status check name
 
-Do **not** guess the required status check name in GitHub settings.
+The required status check name is set by the `sentinel-judge` job in `.github/workflows/pr-sentinel.yml`
+and by the explicit Checks API call in the comment-trigger path.
 
-After a live post-merge test run, record the exact required check name here and in the repository settings checklist:
+- Required check name: **`Sentinel verdict`**
 
-- Required check name: **TO BE VERIFIED FROM LIVE GITHUB CHECKS UI — DO NOT GUESS**
+This name was empirically verified during the sacrificial proof exercise: the `Sentinel verdict` check
+turned green when a Governor APPROVE comment was posted and turned red when a Governor BLOCK comment
+was posted. The comment-trigger path explicitly creates a Checks API run with this exact name on the
+PR head SHA so that branch protection is satisfied.
 
 Any workflow/job rename that changes the live check name must be treated as a governance change and must be synchronized with GitHub branch protection settings.
 
