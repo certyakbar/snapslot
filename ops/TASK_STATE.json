@@ -1,0 +1,46 @@
+{
+  "phase": "0.5",
+  "phaseName": "Operational Continuity",
+  "branch": "phase-0-5-continuity",
+  "headCommitAtPhaseOpen": "a5cbf43",
+  "status": "COMPLETE",
+  "lastUpdated": "2026-04-06",
+  "tasks": [
+    {
+      "id": "0.5-T1",
+      "description": "Create ops/TASK_STATE.json",
+      "status": "DONE",
+      "files": ["ops/TASK_STATE.json"]
+    },
+    {
+      "id": "0.5-T2",
+      "description": "Create scripts/system-check.js",
+      "status": "DONE",
+      "files": ["scripts/system-check.js"]
+    },
+    {
+      "id": "0.5-T3",
+      "description": "Create docs/SNAPSLOT_DISCOVERY_REGISTER.md",
+      "status": "DONE",
+      "files": ["docs/SNAPSLOT_DISCOVERY_REGISTER.md"]
+    },
+    {
+      "id": "0.5-T4",
+      "description": "Insert Phase 0.5 block into docs/SNAPSLOT_PHASE_TASKS.md",
+      "status": "DONE",
+      "files": ["docs/SNAPSLOT_PHASE_TASKS.md"]
+    }
+  ],
+  "exitCriteria": [
+    "ops/TASK_STATE.json exists and is valid JSON",
+    "scripts/system-check.js exists and exits 0 on a clean repo",
+    "docs/SNAPSLOT_DISCOVERY_REGISTER.md exists with Phase 0.5 discoveries logged",
+    "docs/SNAPSLOT_PHASE_TASKS.md contains Phase 0.5 block between Phase 0 and Phase 1"
+  ],
+  "openDiscoveries": "See docs/SNAPSLOT_DISCOVERY_REGISTER.md — DISC-0001..DISC-0004 RESOLVED, DISC-0005..DISC-0007 pending contradiction-log normalization",
+  "deferredToPhase1Preflight": [
+    "DISC-0005: C-001 and C-013 overlap in Contradiction Log — normalization required before Phase 1 implementation",
+    "DISC-0006: SNAPSLOT_SENTINEL_CONTRACT.md missing from Context Recovery Protocol recovery hierarchy — scoped doc edit required",
+    "DISC-0007: ops/TASK_STATE.json and scripts/system-check.js have no risk classification in SNAPSLOT_RISK_POLICY.md file map — scoped doc edit required before any subsequent PR modifying these files"
+  ]
+}

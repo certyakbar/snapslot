@@ -416,6 +416,40 @@ Freeze planning boundaries and eliminate document drift.
 
 ---
 
+## Phase 0.5 — Operational continuity
+
+### Goal
+Establish the operational infrastructure needed to sustain multi-session governance across
+Phase 1 and beyond without context rot.
+
+### Tasks
+- create `ops/TASK_STATE.json`
+- create `scripts/system-check.js`
+- create `docs/SNAPSLOT_DISCOVERY_REGISTER.md`
+- log all Phase 0.5 re-anchor discoveries not yet in the Contradiction Log
+- verify `docs/SNAPSLOT_PHASE_TASKS.md` contains this Phase 0.5 block
+
+### Entry criteria
+- Phase 0 substantially complete: all governance docs exist, Contradiction Log has entries,
+  all three matrices exist
+
+### Exit criteria
+- `ops/TASK_STATE.json` exists and is valid JSON with `phase` and `tasks` fields
+- `scripts/system-check.js` exists and exits 0 on a clean repo
+- `docs/SNAPSLOT_DISCOVERY_REGISTER.md` exists with Phase 0.5 discoveries logged
+- all discoveries are either RESOLVED or labeled `Unlogged discovery / Pending contradiction-log normalization`
+- no C-016+ or D-006+ IDs introduced without explicit Governor decision
+
+### Phase gate
+Phase 1 must not begin until all Phase 0.5 exit criteria are met.
+
+### Proof required
+- `node scripts/system-check.js` exits 0
+- `ops/TASK_STATE.json` parseable as valid JSON; `phase` field is `"0.5"`; `tasks` is array
+- `docs/SNAPSLOT_DISCOVERY_REGISTER.md` shows DISC-0001..DISC-0004 as RESOLVED and
+  DISC-0005..DISC-0007 as pending normalization
+
+---
 ## Phase 1 — Identity and status
 
 ### Goal
