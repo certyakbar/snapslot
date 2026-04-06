@@ -443,9 +443,17 @@ jobs:
       contains(github.event.comment.body, 'GOVERNOR VERDICT')
 
     steps:
+      - name: Create Governor App token
+        id: governor-app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GOVERNOR_APP_ID }}
+          private-key: ${{ secrets.GOVERNOR_APP_PRIVATE_KEY }}
+
       - name: Push empty commit to trigger pull_request synchronize
         uses: actions/github-script@v7
         with:
+          github-token: ${{ steps.governor-app-token.outputs.token }}
           script: |
             // ── Fetch PR details ───────────────────────────────────────────
             const { data: pr } = await github.rest.pulls.get({
