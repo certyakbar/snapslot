@@ -393,3 +393,4 @@ Before the system may be called hardened, SnapSlot must prove all of the followi
 - a Governor APPROVE comment produces a passing Sentinel check on the correct PR head SHA
 - a Governor BLOCK comment forces failure at any risk level
 - branch protection prevents even `@certyakbar` from merging a failing PR
+<!-- governance-proof-test: sacrificial — will not merge -->
