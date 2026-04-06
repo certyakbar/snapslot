@@ -37,10 +37,6 @@
     "docs/SNAPSLOT_DISCOVERY_REGISTER.md exists with Phase 0.5 discoveries logged",
     "docs/SNAPSLOT_PHASE_TASKS.md contains Phase 0.5 block between Phase 0 and Phase 1"
   ],
-  "openDiscoveries": "See docs/SNAPSLOT_DISCOVERY_REGISTER.md — DISC-0001..DISC-0004 RESOLVED, DISC-0005..DISC-0007 pending contradiction-log normalization",
-  "deferredToPhase1Preflight": [
-    "DISC-0005: C-001 and C-013 overlap in Contradiction Log — normalization required before Phase 1 implementation",
-    "DISC-0006: SNAPSLOT_SENTINEL_CONTRACT.md missing from Context Recovery Protocol recovery hierarchy — scoped doc edit required",
-    "DISC-0007: ops/TASK_STATE.json and scripts/system-check.js have no risk classification in SNAPSLOT_RISK_POLICY.md file map — scoped doc edit required before any subsequent PR modifying these files"
-  ]
+  "openDiscoveries": "See docs/SNAPSLOT_DISCOVERY_REGISTER.md — DISC-0001..DISC-0004 RESOLVED, DISC-0005..DISC-0008 NORMALIZED",
+  "deferredToPhase1Preflight": []
 }
