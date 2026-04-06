@@ -212,6 +212,9 @@ Rules:
 - dashboard is viewable
 - dashboard is read-only
 - no create/edit/delete/update actions allowed
+- **read-only enforcement must be implemented at every admin write route, not only at the dashboard UI level — a suspended business admin must receive an error if they call any write API directly**
+- **the following route categories must all enforce business-active status: services (create, edit, delete), availability (save), blocked times (create, edit, delete), bookings (cancel, reschedule, complete, admin-create), payment (mark paid, mark failed, refund), payment-config (update)**
+- **assertBusinessActive (or equivalent) must be applied server-side to every admin write route, not just the public booking routes and slots view**
 - public booking page may be viewable
 - public booking submission is blocked
 - public page must not imply bookability
@@ -238,6 +241,8 @@ Current-phase:
 - one owner credential set
 - separate owner session
 - owner-only routes protected independently from business sessions
+- **owner password must be stored and verified using the same cryptographic primitives as business auth: scrypt for hashing, salt stored alongside hash, constant-time comparison (timingSafeEqual) — plain env-var equality comparison is not permitted**
+- **the `SNAPSLOT_ADMIN_PASSWORD` env var must hold a hashed credential, not a plain-text password, before any production deployment**
 
 ### 8.2 Business admin auth
 Current-phase:
@@ -535,6 +540,14 @@ Every important workflow must have:
 - no money-state contradiction
 - no misleading optimistic copy
 
+### 18.3 Security requirements
+These must be in place before production operation:
+- **HTTP security headers: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Strict-Transport-Security` (HTTPS only), `Content-Security-Policy` baseline — must be enforced by middleware on every response**
+- **request body size limits: all JSON body parsing must have an explicit maximum size limit to prevent request-body amplification attacks**
+- **CSRF protection: session-cookie-based write routes must be assessed for CSRF risk; if assessed as required, token-based CSRF protection must be implemented**
+- **login rate limiting: owner and business login routes must be rate-limited to prevent credential brute-force**
+- **HTTPS enforcement: HTTP→HTTPS redirect must be guaranteed in production, either at process level or via verified reverse-proxy configuration**
+
 ---
 
 ## 19. Concurrency and idempotency architecture
@@ -650,7 +663,66 @@ No multi-instance claims without proof.
 
 ---
 
-## 22. Workflow completion law
+## 22. Phase execution model update
+Architecture §21 lists phases 0–11. Phase 12 (Production readiness) is now added to the execution model:
+
+### Phase 12 — Production readiness
+- deployment target documented
+- environment variable schema documented
+- health check endpoint
+- structured error logging for unhandled exceptions
+- privacy policy and terms of service pages
+- customer data deletion mechanism
+- backup strategy for store.json
+
+---
+
+## 23. Infrastructure and operational requirements
+
+These are not application features. They are prerequisites for production safety.
+
+### 23.1 Deployment
+- the canonical deployment target, process manager, and start command must be documented before any production claim
+- `data/store.json` path must be configurable via environment variable; not hardcoded
+- graceful shutdown must flush in-progress atomic writes before process exit
+
+### 23.2 Environment variables
+Every environment variable the application reads must be documented with:
+- name
+- purpose
+- required or optional
+- safe default (or indication that none exists)
+- example value
+
+No undocumented env vars may exist in a production-ready state.
+
+### 23.3 Health check
+A `GET /health` endpoint must exist:
+- no auth required
+- returns HTTP 200 with minimal response body
+- usable by process managers, load balancers, and uptime monitors
+
+### 23.4 Observability
+- unhandled promise rejections and uncaught exceptions must be caught and logged with structured context
+- `console.error` alone is not sufficient for production diagnosis
+- error logging must include at minimum: timestamp, route, error type, and enough context to reproduce
+
+### 23.5 Data safety
+- `data/store.json` is the single source of persisted truth; a backup strategy must exist
+- atomic writes via `fs.rename` from a temp file must be the only write path; no direct `writeFileSync` to the canonical file path
+- backup frequency and restore procedure must be documented
+
+### 23.6 Legal compliance
+Required before any business or customer data is processed in production:
+- privacy policy page: accessible to customers at booking time
+- terms of service page: accessible to business admins at signup
+- cookie/session disclosure if session cookies are set
+- customer data deletion mechanism: platform owner or business admin must be able to delete all records for a given customer on request
+- data retention policy: how long booking data is kept must be defined and documented
+
+---
+
+## 24. Workflow completion law
 Every workflow must be built as one closed unit:
 
 1. data model
@@ -667,7 +739,7 @@ If one is missing, the workflow is not done.
 
 ---
 
-## 23. Architecture-level definition of done
+## 25. Architecture-level definition of done
 A workflow is architecturally complete only if:
 - actor is defined
 - state model is defined
