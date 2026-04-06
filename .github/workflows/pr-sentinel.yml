@@ -4,23 +4,22 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, edited]
-  # Governor verdict comments trigger a re-run of the pull_request workflow.
+  # Governor verdict comments push an empty commit to the PR branch, which
+  # produces a genuine pull_request synchronize event on a new SHA.
   # Top-level PR conversation comments are issue_comment events in GitHub's API.
-  # The governor-rerun job below restricts execution to PR comments that contain
-  # 'GOVERNOR VERDICT', so ordinary review discussion does not trigger a re-run.
+  # The governor-empty-commit job below restricts execution to PR comments that
+  # contain 'GOVERNOR VERDICT', so ordinary review discussion is ignored.
   issue_comment:
     types: [created]
 
 permissions:
-  contents: read
+  contents: write  # required: governor-empty-commit calls git.createCommit + git.updateRef
   pull-requests: write
   issues: write
-  checks: write
-  actions: write  # required: governor-rerun calls reRunWorkflow
 
 concurrency:
-  # Separate concurrency groups by event type so that a governor-rerun trigger
-  # does not cancel an in-progress pull_request sentinel run.
+  # Separate concurrency groups by event type so that a governor-empty-commit
+  # trigger does not cancel an in-progress pull_request sentinel run.
   # Within each event type, deduplicate by PR number.
   group: sentinel-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: true
@@ -37,9 +36,8 @@ jobs:
     needs: [validate]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Runs only for pull_request events.
-    # Governor verdict re-evaluation is handled by governor-rerun below, which
-    # re-triggers this pull_request workflow run inside its original check suite.
+    # Runs only for pull_request events — including the synchronize event produced
+    # by governor-empty-commit when a Governor verdict comment is posted.
     # always() ensures this job runs even when validate fails (to post SENTINEL-FAIL).
     if: always() && github.event_name == 'pull_request'
 
@@ -422,14 +420,21 @@ jobs:
               core.setFailed(`Sentinel checks failed: ${verdict}`);
             }
 
-  # ── Governor rerun trigger ────────────────────────────────────────────────
-  # When a Governor verdict comment is posted on a PR, this job locates the
-  # latest pull_request-triggered PR Sentinel workflow run for that PR's head
-  # SHA and re-runs it.  The rerun executes inside the original check suite,
-  # so its result updates the exact check run identity that branch protection
-  # tracks — no cross-suite check mutation required.
-  governor-rerun:
-    name: Governor rerun trigger
+  # ── Governor empty-commit trigger ────────────────────────────────────────
+  # When a Governor verdict comment is posted on a PR, this job pushes an
+  # empty commit (same tree, new SHA) to the PR branch.  The push produces a
+  # genuine pull_request synchronize event.  sentinel-judge in that new run
+  # re-reads all PR comments, finds the latest Governor verdict, and passes or
+  # fails accordingly — all within a fresh check suite on the new SHA.
+  #
+  # This is the only architecture that reliably satisfies branch protection:
+  # a synchronize event creates a new check suite that branch protection
+  # tracks from scratch, with no competing check run from a prior push.
+  #
+  # Forbidden: checks.update, checks.create (Sentinel verdict), reRunWorkflow.
+  # None of those can override the original push event's check suite identity.
+  governor-empty-commit:
+    name: Governor empty-commit trigger
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: |
@@ -438,7 +443,7 @@ jobs:
       contains(github.event.comment.body, 'GOVERNOR VERDICT')
 
     steps:
-      - name: Re-run latest PR Sentinel workflow run for this PR
+      - name: Push empty commit to trigger pull_request synchronize
         uses: actions/github-script@v7
         with:
           script: |
@@ -451,7 +456,7 @@ jobs:
 
             if (pr.base.ref !== 'main') {
               core.warning(
-                `PR #${pr.number} targets '${pr.base.ref}', not 'main' — rerun skipped`
+                `PR #${pr.number} targets '${pr.base.ref}', not 'main' — empty commit skipped`
               );
               return;
             }
@@ -461,51 +466,39 @@ jobs:
 
             core.info(`PR #${pr.number}: head branch=${headBranch} SHA=${headSha}`);
 
-            // ── Locate PR Sentinel workflow ────────────────────────────────
-            const { data: { workflows } } = await github.rest.actions.listRepoWorkflows({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+            // ── Fetch the tree SHA of the current head commit ──────────────
+            const { data: headCommit } = await github.rest.git.getCommit({
+              owner:      context.repo.owner,
+              repo:       context.repo.repo,
+              commit_sha: headSha,
             });
 
-            const sentinelWorkflow = workflows.find(w => w.name === 'PR Sentinel');
-            if (!sentinelWorkflow) {
-              core.setFailed('Could not find PR Sentinel workflow — rerun aborted');
-              return;
-            }
+            // ── Create an empty commit (same tree, no file changes) ────────
+            // Preserves the PR diff exactly while producing a new SHA.
+            // The new SHA triggers a genuine pull_request synchronize event.
+            // sentinel-judge in that new run re-reads all PR comments and
+            // applies the latest Governor verdict.
+            // No [skip ci] — the synchronize run must fire unconditionally.
+            const { data: newCommit } = await github.rest.git.createCommit({
+              owner:   context.repo.owner,
+              repo:    context.repo.repo,
+              message: 'chore: refresh sentinel after governor verdict',
+              tree:    headCommit.tree.sha,
+              parents: [headSha],
+            });
 
-            // ── Find latest pull_request-triggered run for this PR head SHA ─
-            // Filter by event=pull_request and head_sha so we get the run that
-            // owns the check suite branch protection is tracking.
-            const { data: { workflow_runs: runs } } =
-              await github.rest.actions.listWorkflowRuns({
-                owner:       context.repo.owner,
-                repo:        context.repo.repo,
-                workflow_id: sentinelWorkflow.id,
-                event:       'pull_request',
-                head_sha:    headSha,
-                per_page:    5,
-              });
-
-            if (runs.length === 0) {
-              core.setFailed(
-                `No pull_request-triggered PR Sentinel run found for ` +
-                `SHA ${headSha} (branch ${headBranch}) — rerun aborted`
-              );
-              return;
-            }
-
-            // Runs are returned newest-first; take the first one.
-            const targetRun = runs[0];
-            core.info(
-              `Re-running workflow run #${targetRun.id} ` +
-              `(status=${targetRun.status}, conclusion=${targetRun.conclusion}) ` +
-              `for SHA ${headSha}`
-            );
-
-            await github.rest.actions.reRunWorkflow({
+            // ── Advance the branch ref (non-force) ─────────────────────────
+            // force: false — rejects if the branch has advanced since this job
+            // read the head SHA, protecting against concurrent racing updates.
+            await github.rest.git.updateRef({
               owner:  context.repo.owner,
               repo:   context.repo.repo,
-              run_id: targetRun.id,
+              ref:    `heads/${headBranch}`,
+              sha:    newCommit.sha,
+              force:  false,
             });
 
-            core.info(`Rerun triggered — run #${targetRun.id} will re-evaluate the latest Governor verdict`);
+            core.info(
+              `Empty commit ${newCommit.sha} pushed to ${headBranch} — ` +
+              `pull_request synchronize event will run sentinel-judge on new SHA`
+            );
