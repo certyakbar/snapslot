@@ -520,18 +520,53 @@ jobs:
 
             if (isCommentTrigger) {
               const prHeadSha = '${{ steps.pr-ref.outputs.head-sha }}';
-              await github.rest.checks.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                name: 'Sentinel verdict',
-                head_sha: prHeadSha,
+
+              const checkPayload = {
                 status: 'completed',
                 conclusion: allPassed ? 'success' : 'failure',
                 output: {
                   title: allPassed ? 'SENTINEL-PASS' : 'SENTINEL-FAIL',
                   summary: body,
                 },
-              });
+              };
+
+              // Update the existing Sentinel verdict check run created by the
+              // pull_request event, rather than creating a new parallel one.
+              // A new check run from checks.create lands in a different check suite
+              // than the one branch protection tracks from the push event; updating
+              // the existing run modifies the same identity the required gate monitors.
+              let checkUpdated = false;
+              try {
+                const { data: { check_runs } } = await github.rest.checks.listForRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: prHeadSha,
+                  check_name: 'Sentinel verdict',
+                  filter: 'latest',
+                  per_page: 5,
+                });
+                if (check_runs.length > 0) {
+                  await github.rest.checks.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    check_run_id: check_runs[0].id,
+                    ...checkPayload,
+                  });
+                  checkUpdated = true;
+                }
+              } catch (e) {
+                core.warning(`checks.update failed: ${e.message} — falling back to checks.create`);
+              }
+
+              if (!checkUpdated) {
+                await github.rest.checks.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: 'Sentinel verdict',
+                  head_sha: prHeadSha,
+                  ...checkPayload,
+                });
+              }
             }
 
             if (!allPassed) {
