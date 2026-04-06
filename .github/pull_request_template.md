@@ -1,3 +1,11 @@
+## Governance metadata (machine-read — replace placeholder values, keep key names exact)
+
+<!-- SENTINEL:task_id=REPLACE_TASK_ID -->
+<!-- SENTINEL:risk=REPLACE_RISK -->
+<!-- SENTINEL:ledger=NONE -->
+
+---
+
 ## Task reference
 
 - Task ID: <!-- e.g. T-02-C1-assert-business-active -->
@@ -11,7 +19,9 @@
 
 **Files changed (exact list):**
 
+<!-- SENTINEL:FILES_BEGIN -->
 - <!-- list each file changed, added, or deleted -->
+<!-- SENTINEL:FILES_END -->
 
 **Files explicitly not touched:**
 
@@ -56,11 +66,20 @@ or Contradiction Log entry that drives this change. Be exact. -->
 
 <!-- Which Acceptance Ledger rows are affected?
 Use PASS / FAIL / UNVERIFIED only. Do not mark PASS without proof above.
-If no rows are affected, write: None -->
+If no rows are affected, write exactly: None
+Then set `<!-- SENTINEL:ledger=NONE -->` above.
+If one or more rows are affected, set `<!-- SENTINEL:ledger=AFFECTED -->` above
+and replace None with a filled table. -->
 
+<!-- SENTINEL:LEDGER_BEGIN -->
+None
+<!-- SENTINEL:LEDGER_END -->
+
+<!-- Ledger table shape when AFFECTED:
 | Area | Previous status | New status | Proof reference |
 |---|---|---|---|
-| <!-- area --> | <!-- status --> | <!-- status --> | <!-- test file and output --> |
+| example area | FAIL | PASS | tests/example.test.ts |
+-->
 
 ---
 

@@ -15,6 +15,7 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
+  checks: write
 
 concurrency:
   # Deduplicate by PR number across both trigger types.
@@ -162,33 +163,74 @@ jobs:
             }
 
             // ── Group B: PR template field checks ─────────────────────────
-            // B1: Task packet ID — must be T-{something}, not a placeholder comment
-            const hasTaskId = /Task ID:\s*T-\S+/.test(prBody);
+            function getSentinelAnchor(key) {
+              const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const match = prBody.match(new RegExp(`<!--\\s*SENTINEL:${escapedKey}=([^\\s>]+)\\s*-->`, 'i'));
+              return match ? match[1].trim() : null;
+            }
 
-            // B2: Risk tier explicitly declared
+            function getSentinelSection(beginMarker, endMarker) {
+              const escapedBegin = beginMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const escapedEnd = endMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const match = prBody.match(
+                new RegExp(
+                  `<!--\\s*SENTINEL:${escapedBegin}\\s*-->\\s*([\\s\\S]*?)\\s*<!--\\s*SENTINEL:${escapedEnd}\\s*-->`,
+                  'i'
+                )
+              );
+              return match ? match[1] : '';
+            }
+
+            // B1: Task packet ID — prefer machine-readable anchor, fall back to visible field
+            const anchoredTaskId = getSentinelAnchor('task_id');
+            const hasTaskId = anchoredTaskId !== null
+              ? /^T-\S+$/.test(anchoredTaskId)
+              : /Task ID:\s*T-\S+/.test(prBody);
+
+            // B2: Risk tier declared — prefer machine-readable anchor, fall back to visible field
+            const anchoredRiskLevel = getSentinelAnchor('risk');
             const riskMatch = prBody.match(/Risk level:\s*(CRITICAL|HIGH|MEDIUM|LOW)/i);
-            const riskLevel = riskMatch ? riskMatch[1].toUpperCase() : null;
+            const riskLevel = anchoredRiskLevel !== null
+              ? (/^(CRITICAL|HIGH|MEDIUM|LOW)$/i.test(anchoredRiskLevel) ? anchoredRiskLevel.toUpperCase() : null)
+              : (riskMatch ? riskMatch[1].toUpperCase() : null);
 
-            // B3: Files changed section — parse the declared file list deterministically.
-            // Matches the "**Files changed (exact list):**" section up to the next bold header,
-            // HR, or section heading.
-            const filesChangedMatch = prBody.match(
-              /\*\*Files changed[^*]*\*\*[^\n]*\n([\s\S]*?)(?=\n\*\*Files explicitly|\n---|\n##|$)/i
-            );
-            const filesChangedSection = filesChangedMatch ? filesChangedMatch[1] : '';
-            // Extract file paths: lines starting with - or * followed by an optional backtick-quoted
-            // or bare path. Filter out placeholder HTML comments.
+            // B3: Files changed section — prefer explicit section markers, fall back to markdown heading parsing
+            let filesChangedSection = getSentinelSection('FILES_BEGIN', 'FILES_END');
+            if (!filesChangedSection) {
+              const filesChangedMatch = prBody.match(
+                /\*\*Files changed[^*]*\*\*[^\n]*\n([\s\S]*?)(?=\n\*\*Files explicitly|\n---|\n##|$)/i
+              );
+              filesChangedSection = filesChangedMatch ? filesChangedMatch[1] : '';
+            }
             const declaredFiles = [...filesChangedSection.matchAll(/^[-*]\s+`?([^\s`\n<>]+)`?/gm)]
               .map(m => m[1].trim())
               .filter(f => f.length > 0 && !f.startsWith('<!--'));
             const hasFilesChanged = declaredFiles.length > 0;
 
-            // B4: Ledger impact declared — placeholder replaced or "None" explicitly written
-            const ledgerSectionMatch = prBody.match(/## Ledger impact([\s\S]*?)(?=##|$)/i);
-            const ledgerSection = ledgerSectionMatch ? ledgerSectionMatch[1] : '';
-            const ledgerHasContent =
-              /None/i.test(ledgerSection) ||
-              (ledgerSection.includes('|') && !ledgerSection.includes('<!-- area -->'));
+            // B4: Ledger impact declared — prefer machine-readable anchor, require real data rows when affected
+            const anchoredLedger = getSentinelAnchor('ledger');
+            let ledgerSection = getSentinelSection('LEDGER_BEGIN', 'LEDGER_END');
+            if (!ledgerSection) {
+              const ledgerSectionMatch = prBody.match(/## Ledger impact([\s\S]*?)(?=\n---|\n##|$)/i);
+              ledgerSection = ledgerSectionMatch ? ledgerSectionMatch[1] : '';
+            }
+            const ledgerTableLines = ledgerSection
+              .split('\n')
+              .map(line => line.trim())
+              .filter(line => line.startsWith('|'));
+            const ledgerHasRealRows =
+              ledgerTableLines.length >= 3 &&
+              !ledgerSection.includes('<!-- area -->');
+            const ledgerHasContent = anchoredLedger
+              ? (
+                  anchoredLedger.toUpperCase() === 'NONE'
+                    ? /(^|\n)\s*None\s*($|\n)/i.test(ledgerSection)
+                    : anchoredLedger.toUpperCase() === 'AFFECTED' && ledgerHasRealRows
+                )
+              : (
+                  /None/i.test(ledgerSection) ||
+                  (ledgerSection.includes('|') && !ledgerSection.includes('<!-- area -->'))
+                );
 
             // ── Group C: Protected-path / risk alignment ────────────────────
             // context.issue.number returns the PR number for both pull_request and
@@ -414,7 +456,7 @@ jobs:
               ['Task packet ID (`T-{...}`)',                 p(hasTaskId),       hasTaskId ? '' : 'Missing or placeholder — fill Task ID field'],
               ['Risk tier declared',                        p(!!riskLevel),     riskLevel ? `\`${riskLevel}\`` : 'Missing — add CRITICAL / HIGH / MEDIUM / LOW'],
               ['Allowed files declaration',                 p(hasFilesChanged), hasFilesChanged ? '' : 'Files changed section appears empty or contains only placeholders'],
-              ['Ledger / doc impact declared',              p(ledgerHasContent),ledgerHasContent ? '' : 'Ledger section placeholder not replaced — write the impacted rows or "None"'],
+              ['Ledger / doc impact declared',              p(ledgerHasContent),ledgerHasContent ? '' : 'Ledger anchor/body mismatch — use SENTINEL:ledger=NONE with exact "None", or SENTINEL:ledger=AFFECTED with at least one real ledger row'],
               ['Protected path / risk alignment',           p(riskAlignmentPassed), riskAlignmentNote],
               ['Declared scope vs actual diff',             p(scopeAlignmentPassed), scopeAlignmentNote],
             ];
@@ -475,6 +517,22 @@ jobs:
               issue_number: context.issue.number,
               body,
             });
+
+            if (isCommentTrigger) {
+              const prHeadSha = '${{ steps.pr-ref.outputs.head-sha }}';
+              await github.rest.checks.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'Sentinel verdict',
+                head_sha: prHeadSha,
+                status: 'completed',
+                conclusion: allPassed ? 'success' : 'failure',
+                output: {
+                  title: allPassed ? 'SENTINEL-PASS' : 'SENTINEL-FAIL',
+                  summary: body,
+                },
+              });
+            }
 
             if (!allPassed) {
               core.setFailed(`Sentinel checks failed: ${verdict}`);
