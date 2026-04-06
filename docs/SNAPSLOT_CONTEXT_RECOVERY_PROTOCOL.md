@@ -62,19 +62,21 @@ When reconstructing project truth, use this exact order:
 
 1. `CLAUDE.md`
 2. `.github/copilot-instructions.md`
-3. `docs/SNAPSLOT_CONSTITUTION.md`
-4. `docs/SNAPSLOT_ARCHITECTURE.md`
-5. `docs/SNAPSLOT_PHASE_TASKS.md`
-6. `docs/SNAPSLOT_STATE_MATRIX.md`
-7. `docs/SNAPSLOT_ROUTE_MATRIX.md`
-8. `docs/SNAPSLOT_UI_MATRIX.md`
-9. `docs/SNAPSLOT_CONTRADICTION_LOG.md`
-10. `docs/SNAPSLOT_ACCEPTANCE_LEDGER.md`
-11. exact code files in scope
-12. exact tests and runtime proof in scope
+3. `docs/SNAPSLOT_SENTINEL_CONTRACT.md`
+4. `docs/SNAPSLOT_CONSTITUTION.md`
+5. `docs/SNAPSLOT_ARCHITECTURE.md`
+6. `docs/SNAPSLOT_PHASE_TASKS.md`
+7. `docs/SNAPSLOT_STATE_MATRIX.md`
+8. `docs/SNAPSLOT_ROUTE_MATRIX.md`
+9. `docs/SNAPSLOT_UI_MATRIX.md`
+10. `docs/SNAPSLOT_CONTRADICTION_LOG.md`
+11. `docs/SNAPSLOT_ACCEPTANCE_LEDGER.md`
+12. exact code files in scope
+13. exact tests and runtime proof in scope
 
 Reason:
 - agent-control files define how work must be handled
+- Sentinel Contract defines the automated enforcement and merge-gate model — agents must know the exact Governor verdict format, risk alignment rules, and check-name requirements before acting on any PR
 - Constitution defines intended law
 - Architecture defines design
 - Phase Tasks define order and gates
