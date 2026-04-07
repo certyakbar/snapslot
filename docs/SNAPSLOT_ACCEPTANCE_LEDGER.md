@@ -6,6 +6,7 @@ This ledger records verification truth against the Constitution. Statuses are PA
 
 | Area | Status | Proof / Notes |
 | --- | --- | --- |
+| Governance: approval manifest binding (Phase 0.75) | PASS | Manifest model implemented in PR #13 and proven by closed sacrificial proof PR #16: P1 FAIL with verdict=NONE, P2 PASS on valid current manifest, P3 FAIL after post-approval commit, P4 FAIL on BLOCK override, P5 PASS after re-approval. Phase 0.75 proof is complete and PR #16 was closed without merge per plan. See docs/SNAPSLOT_SENTINEL_CONTRACT.md section 12. |
 | Business registration | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): `POST /api/signup` returns 201 for two independent businesses, `businessId` prefixed `biz_`, `adminUrl` equals `/admin/{businessId}`, session cookie set on response. |
 | Login | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): `POST /api/login` with valid credentials returns 200, `businessId` matches signup value, `adminUrl` equals `/admin/{businessId}`, session cookie established and confirmed active via `/api/session`. |
 | Logout | PASS | Proven by `tests/authIsolation.test.ts` (commit `c3af8dff`, `PASS 1 tests` on `origin/main`): `POST /api/logout` returns 200; subsequent `GET /api/session` with the same cookie returns 401, confirming session destroyed. |
