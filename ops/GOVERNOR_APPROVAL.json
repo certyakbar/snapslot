@@ -3,8 +3,8 @@
     "verdict":  "APPROVE",
     "governor_login":  "certyakbar",
     "pr_number":  13,
-    "approved_parent_sha":  "0076642738fd356fdadd55297553eadd73c8de23",
-    "approved_tree_sha":  "e000f809b293861cd7ca56ceca9ec2a860314459",
+    "approved_parent_sha":  "2b1cc0952e72e023bef8457ed6a9b198bd2e22d5",
+    "approved_tree_sha":  "e22ac236146cc232b466d2ca0623198580f06f55",
     "risk_tier":  "HIGH",
     "task_id":  "T-0.75-GOVERNANCE-HARDENING",
     "declared_files":  [
@@ -17,5 +17,5 @@
                            "docs/SNAPSLOT_DISCOVERY_REGISTER.md"
                        ],
     "ledger_state":  "AFFECTED",
-    "issued_at":  "2026-04-07T18:09:17Z"
+    "issued_at":  "2026-04-07T18:32:29Z"
 }
