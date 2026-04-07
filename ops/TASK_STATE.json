@@ -1,42 +1,64 @@
 {
-  "phase": "0.5",
-  "phaseName": "Operational Continuity",
-  "branch": "phase-0-5-continuity",
-  "headCommitAtPhaseOpen": "a5cbf43",
+  "phase": "0.75",
+  "phaseName": "Governance Hardening",
+  "branch": "chore/phase-0-75-governance-hardening",
+  "headCommitAtPhaseOpen": "0245f43",
   "status": "COMPLETE",
-  "lastUpdated": "2026-04-06",
+  "lastUpdated": "2026-04-07",
   "tasks": [
     {
-      "id": "0.5-T1",
-      "description": "Create ops/TASK_STATE.json",
+      "id": "0.75-T1",
+      "description": "Rewrite Sentinel Group D: validate ops/GOVERNOR_APPROVAL.json instead of scanning PR comments for APPROVE verdicts",
       "status": "DONE",
-      "files": ["ops/TASK_STATE.json"]
+      "files": [".github/workflows/pr-sentinel.yml"]
     },
     {
-      "id": "0.5-T2",
-      "description": "Create scripts/system-check.js",
+      "id": "0.75-T2",
+      "description": "Replace governor-empty-commit job with governor-manifest-commit job that commits the approval manifest when Governor posts GOVERNOR VERDICT: APPROVE FOR MERGE",
       "status": "DONE",
-      "files": ["scripts/system-check.js"]
+      "files": [".github/workflows/pr-sentinel.yml"]
     },
     {
-      "id": "0.5-T3",
-      "description": "Create docs/SNAPSLOT_DISCOVERY_REGISTER.md",
+      "id": "0.75-T3",
+      "description": "Update docs/SNAPSLOT_SENTINEL_CONTRACT.md with manifest contract (section 12) and revised section 6",
       "status": "DONE",
-      "files": ["docs/SNAPSLOT_DISCOVERY_REGISTER.md"]
+      "files": ["docs/SNAPSLOT_SENTINEL_CONTRACT.md"]
     },
     {
-      "id": "0.5-T4",
-      "description": "Insert Phase 0.5 block into docs/SNAPSLOT_PHASE_TASKS.md",
+      "id": "0.75-T4",
+      "description": "Update docs/SNAPSLOT_RISK_POLICY.md sections 6 and 7 with new approval model",
       "status": "DONE",
-      "files": ["docs/SNAPSLOT_PHASE_TASKS.md"]
+      "files": ["docs/SNAPSLOT_RISK_POLICY.md"]
+    },
+    {
+      "id": "0.75-T5",
+      "description": "Update .github/pull_request_template.md with new Governor workflow instructions",
+      "status": "DONE",
+      "files": [".github/pull_request_template.md"]
+    },
+    {
+      "id": "0.75-T6",
+      "description": "Create ops/GOVERNOR_APPROVAL.json placeholder with verdict NONE until approved",
+      "status": "DONE",
+      "files": ["ops/GOVERNOR_APPROVAL.json"]
     }
   ],
   "exitCriteria": [
-    "ops/TASK_STATE.json exists and is valid JSON",
-    "scripts/system-check.js exists and exits 0 on a clean repo",
-    "docs/SNAPSLOT_DISCOVERY_REGISTER.md exists with Phase 0.5 discoveries logged",
-    "docs/SNAPSLOT_PHASE_TASKS.md contains Phase 0.5 block between Phase 0 and Phase 1"
+    "ops/GOVERNOR_APPROVAL.json exists and schema is documented",
+    "Sentinel Group D reads the manifest for APPROVE, not PR comments",
+    "Manifest binding validation passes when approval is current",
+    "Manifest binding validation fails automatically when any commit is pushed after the manifest",
+    "BLOCK remains comment-based and overrides any manifest",
+    "Sacrificial proof PR executed and all 5 proof cases (P1-P5) pass"
   ],
-  "openDiscoveries": "See docs/SNAPSLOT_DISCOVERY_REGISTER.md — DISC-0001..DISC-0004 RESOLVED, DISC-0005..DISC-0008 NORMALIZED",
+  "proofRequired": [
+    "P1: No manifest (verdict=NONE) -> SENTINEL-FAIL for CRITICAL/HIGH",
+    "P2: Valid manifest at correct HEAD -> SENTINEL-PASS",
+    "P3: New commit pushed after manifest -> SENTINEL-FAIL (automatic expiry)",
+    "P4: BLOCK comment posted after manifest -> SENTINEL-FAIL (BLOCK overrides)",
+    "P5: Re-approval after fix -> SENTINEL-PASS (re-approval works)"
+  ],
+  "proofRecord": "PR #13 implemented the manifest model; PR #16 executed P1-P5 sacrificial proof and was closed without merge; PR #17 recorded the PASS ledger proof.",
+  "openDiscoveries": "DISC-0009 RESOLVED by the Phase 0.75 manifest-bound approval model.",
   "deferredToPhase1Preflight": []
 }

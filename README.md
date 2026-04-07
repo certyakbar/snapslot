@@ -19,7 +19,6 @@ The system must remain reliable under real usage:
 - no cross-business data leakage
 - no fake UI pretending unsupported features exist
 - no convenience feature allowed to weaken booking integrity
-- Proof PR for governor-empty-commit validation.
 
 ## Current direction
 
