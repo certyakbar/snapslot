@@ -1,15 +1,13 @@
 {
-  "schema_version": "1",
-  "verdict": "APPROVE",
-  "governor_login": "certyakbar",
-  "pr_number": 17,
-  "approved_parent_sha": "c343ef1d821dea49762e7d79503b12e38fb3fe41",
-  "approved_tree_sha": "864cfa24dfc1b91aef7560022c16aff673cb6898",
-  "risk_tier": "HIGH",
-  "task_id": "T-0.75-PROOF-RECORD",
-  "declared_files": [
-    "docs/SNAPSLOT_ACCEPTANCE_LEDGER.md"
-  ],
-  "ledger_state": "AFFECTED",
-  "issued_at": "2026-04-07T19:40:47.638Z"
+    "schema_version": "1",
+    "verdict": "NONE",
+    "governor_login": null,
+    "pr_number": null,
+    "approved_parent_sha": null,
+    "approved_tree_sha": null,
+    "risk_tier": null,
+    "task_id": null,
+    "declared_files": null,
+    "ledger_state": null,
+    "issued_at": null
 }
