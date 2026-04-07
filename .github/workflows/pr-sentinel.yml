@@ -41,6 +41,10 @@ jobs:
     # by governor-manifest-commit when a Governor verdict comment is posted.
     # always() ensures this job runs even when validate fails (to post SENTINEL-FAIL).
     if: always() && github.event_name == 'pull_request'
+    env:
+      TYPECHECK_PASSED: ${{ needs.validate.outputs.typecheck-passed }}
+      TESTS_PASSED: ${{ needs.validate.outputs.tests-passed }}
+      VALIDATE_RESULT: ${{ needs.validate.result }}
 
     steps:
       # ── Sentinel evaluation — pull_request events only ────────────────────
@@ -55,9 +59,9 @@ jobs:
 
             // ── Validation results ─────────────────────────────────────────
             // Always from the reusable validate job outputs (pull_request path only).
-            const typecheckPassed = '${{ needs.validate.outputs.typecheck-passed }}' === 'true';
-            const testsPassed     = '${{ needs.validate.outputs.tests-passed }}'     === 'true';
-            const validatePassed  = '${{ needs.validate.result }}' === 'success';
+            const typecheckPassed = process.env.TYPECHECK_PASSED === 'true';
+            const testsPassed     = process.env.TESTS_PASSED === 'true';
+            const validatePassed  = process.env.VALIDATE_RESULT === 'success';
 
             // ── PR body ────────────────────────────────────────────────────
             const prBody = context.payload.pull_request?.body || '';
