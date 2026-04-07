@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { hashPassword } from "../auth.ts";
 
 const EMPTY_STATE = {
   businesses: [],
@@ -18,6 +19,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, "..");
 const SUBSCRIPTION_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const TEST_ADMIN_PASSWORD = "test-admin-pass";
+const TEST_ADMIN_PASSWORD_SALT = "746573742d61646d696e2d73616c74";
+const TEST_ADMIN_PASSWORD_CREDENTIAL = `${TEST_ADMIN_PASSWORD_SALT}:${hashPassword(
+  TEST_ADMIN_PASSWORD,
+  TEST_ADMIN_PASSWORD_SALT
+)}`;
 
 type SessionState = {
   cookie: string;
@@ -172,7 +179,7 @@ async function startServerForTest(): Promise<RunningServer> {
       ...process.env,
       PORT: String(port),
       BOOKING_SYSTEM_DATA_FILE: dataFile,
-      SNAPSLOT_ADMIN_PASSWORD: "test-admin-pass",
+      SNAPSLOT_ADMIN_PASSWORD: TEST_ADMIN_PASSWORD_CREDENTIAL,
       SMTP_HOST: "127.0.0.1",
       SMTP_PORT: "1",
     },
@@ -495,7 +502,7 @@ const tests: TestCase[] = [
 
       try {
         const adminSession = { cookie: "" };
-        const login = await adminLogin(running.port, adminSession, "test-admin-pass");
+        const login = await adminLogin(running.port, adminSession, TEST_ADMIN_PASSWORD);
 
         assert.equal(login.status, 200);
         assert.equal(login.body.ok, true);
@@ -543,7 +550,7 @@ const tests: TestCase[] = [
         const businessSession = { cookie: "" };
         const adminSession = { cookie: "" };
         const { businessId } = await signUpBusiness(running.port, businessSession);
-        await adminLogin(running.port, adminSession, "test-admin-pass");
+        await adminLogin(running.port, adminSession, TEST_ADMIN_PASSWORD);
 
         const list = await listAdminBusinesses(running.port, adminSession);
 
@@ -565,7 +572,7 @@ const tests: TestCase[] = [
         const adminSession = { cookie: "" };
         const { businessId } = await signUpBusiness(running.port, businessSession);
         const before = await getBusinessSubscription(running.port, businessId, businessSession);
-        await adminLogin(running.port, adminSession, "test-admin-pass");
+        await adminLogin(running.port, adminSession, TEST_ADMIN_PASSWORD);
 
         const result = await applyBillingAction(running.port, businessId, "mark_paid", adminSession);
 
@@ -599,7 +606,7 @@ const tests: TestCase[] = [
         const businessSession = { cookie: "" };
         const adminSession = { cookie: "" };
         const { businessId } = await signUpBusiness(running.port, businessSession);
-        await adminLogin(running.port, adminSession, "test-admin-pass");
+        await adminLogin(running.port, adminSession, TEST_ADMIN_PASSWORD);
 
         const result = await applyBillingAction(running.port, businessId, "suspend", adminSession);
 
@@ -621,7 +628,7 @@ const tests: TestCase[] = [
         const businessSession = { cookie: "" };
         const adminSession = { cookie: "" };
         const { businessId } = await signUpBusiness(running.port, businessSession);
-        await adminLogin(running.port, adminSession, "test-admin-pass");
+        await adminLogin(running.port, adminSession, TEST_ADMIN_PASSWORD);
         await applyBillingAction(running.port, businessId, "suspend", adminSession);
 
         const result = await applyBillingAction(running.port, businessId, "reactivate", adminSession);
@@ -643,7 +650,7 @@ const tests: TestCase[] = [
         const businessSession = { cookie: "" };
         const adminSession = { cookie: "" };
         const { businessId } = await signUpBusiness(running.port, businessSession);
-        await adminLogin(running.port, adminSession, "test-admin-pass");
+        await adminLogin(running.port, adminSession, TEST_ADMIN_PASSWORD);
         await applyBillingAction(running.port, businessId, "suspend", adminSession);
 
         const result = await applyBillingAction(running.port, businessId, "deactivate", adminSession);
@@ -711,7 +718,7 @@ const tests: TestCase[] = [
         const businessSession = { cookie: "" };
         const adminSession = { cookie: "" };
         const { businessId, slug } = await signUpBusiness(running.port, businessSession);
-        await adminLogin(running.port, adminSession, "test-admin-pass");
+        await adminLogin(running.port, adminSession, TEST_ADMIN_PASSWORD);
         await applyBillingAction(running.port, businessId, "suspend", adminSession);
 
         const response = await requestText(running.port, `/booking/${slug}`, { method: "GET" });
@@ -733,7 +740,7 @@ const tests: TestCase[] = [
         const { businessId, slug } = await signUpBusiness(running.port, businessSession);
         const service = await createService(running.port, businessId, businessSession);
         await saveAvailability(running.port, businessId, businessSession);
-        await adminLogin(running.port, adminSession, "test-admin-pass");
+        await adminLogin(running.port, adminSession, TEST_ADMIN_PASSWORD);
         await applyBillingAction(running.port, businessId, "suspend", adminSession);
 
         const booking = await createPublicBooking(running.port, slug, service.id);
@@ -753,7 +760,7 @@ const tests: TestCase[] = [
         const businessSession = { cookie: "" };
         const adminSession = { cookie: "" };
         const { businessId } = await signUpBusiness(running.port, businessSession);
-        await adminLogin(running.port, adminSession, "test-admin-pass");
+        await adminLogin(running.port, adminSession, TEST_ADMIN_PASSWORD);
 
         const result = await applyBillingAction(running.port, businessId, "nonsense", adminSession);
 

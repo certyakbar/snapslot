@@ -238,9 +238,14 @@ async function startServer(): Promise<void> {
 
   app.post("/api/snapslot-admin/login", (req: Request, res: Response) => {
     const password = String(req.body?.password ?? "");
-    const expectedPassword = String(process.env.SNAPSLOT_ADMIN_PASSWORD ?? "");
+    const storedCredential = parseSnapslotAdminCredential(
+      String(process.env.SNAPSLOT_ADMIN_PASSWORD ?? "")
+    );
 
-    if (!expectedPassword || password !== expectedPassword) {
+    if (
+      !storedCredential ||
+      !verifyPassword(password, storedCredential.salt, storedCredential.expectedHash)
+    ) {
       res.status(401).json({ error: "Incorrect password." });
       return;
     }
@@ -930,6 +935,30 @@ function assertBusinessActive(business: BusinessProfile, res: Response): boolean
   }
 
   return true;
+}
+
+function parseSnapslotAdminCredential(
+  value: string
+): { salt: string; expectedHash: string } | null {
+  const [salt, expectedHash, extra] = value.split(":");
+
+  if (extra !== undefined || !salt || !expectedHash) {
+    return null;
+  }
+
+  if (!isHexString(salt) || !isHexString(expectedHash)) {
+    return null;
+  }
+
+  if (expectedHash.length !== 128) {
+    return null;
+  }
+
+  return { salt, expectedHash };
+}
+
+function isHexString(value: string): boolean {
+  return value.length % 2 === 0 && /^[0-9a-f]+$/i.test(value);
 }
 
 function toSnapslotAdminBusinessView(business: BusinessProfile) {
