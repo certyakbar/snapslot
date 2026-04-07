@@ -1,15 +1,15 @@
 {
-    "schema_version":  "1",
-    "verdict":  "NONE",
-    "governor_login":  "certyakbar",
-    "pr_number":  null,
-    "approved_parent_sha":  null,
-    "approved_tree_sha":  null,
-    "risk_tier":  null,
-    "task_id":  null,
-    "declared_files":  [
-
-                       ],
-    "ledger_state":  null,
-    "issued_at":  null
+  "schema_version": "1",
+  "verdict": "APPROVE",
+  "governor_login": "certyakbar",
+  "pr_number": 16,
+  "approved_parent_sha": "59a306b99ead25d5897019cfc79e8e3e588ee193",
+  "approved_tree_sha": "bdf39406fc871afb92aa126e94a8dee5412ffeaf",
+  "risk_tier": "HIGH",
+  "task_id": "T-0.75-SACRIFICIAL-PROOF",
+  "declared_files": [
+    "docs/SNAPSLOT_PHASE_0_75_SACRIFICIAL_PROOF.md"
+  ],
+  "ledger_state": "NONE",
+  "issued_at": "2026-04-07T19:02:17.498Z"
 }
