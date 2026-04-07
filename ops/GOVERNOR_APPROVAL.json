@@ -1,0 +1,21 @@
+{
+    "schema_version":  "1",
+    "verdict":  "APPROVE",
+    "governor_login":  "certyakbar",
+    "pr_number":  13,
+    "approved_parent_sha":  "2b1cc0952e72e023bef8457ed6a9b198bd2e22d5",
+    "approved_tree_sha":  "e22ac236146cc232b466d2ca0623198580f06f55",
+    "risk_tier":  "HIGH",
+    "task_id":  "T-0.75-GOVERNANCE-HARDENING",
+    "declared_files":  [
+                           ".github/workflows/pr-sentinel.yml",
+                           ".github/pull_request_template.md",
+                           "docs/SNAPSLOT_SENTINEL_CONTRACT.md",
+                           "docs/SNAPSLOT_RISK_POLICY.md",
+                           "docs/SNAPSLOT_PHASE_TASKS.md",
+                           "docs/SNAPSLOT_ACCEPTANCE_LEDGER.md",
+                           "docs/SNAPSLOT_DISCOVERY_REGISTER.md"
+                       ],
+    "ledger_state":  "AFFECTED",
+    "issued_at":  "2026-04-07T18:32:29Z"
+}

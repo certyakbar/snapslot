@@ -153,14 +153,15 @@ for merge. Governor may still block at discretion.
 
 | Risk level | Sentinel may pass without Governor | Sentinel verdict |
 |---|---|---|
-| CRITICAL | never — Governor APPROVE required | SENTINEL-FAIL until Governor verdict present |
-| HIGH | never — Governor APPROVE required | SENTINEL-FAIL until Governor verdict present |
+| CRITICAL | never — valid approval manifest required | SENTINEL-FAIL until valid manifest present |
+| HIGH | never — valid approval manifest required | SENTINEL-FAIL until valid manifest present |
 | MEDIUM | yes, if all checks green | SENTINEL-PASS |
 | LOW | yes, if all checks green | SENTINEL-PASS |
 
-Governor verdict is posted as a PR comment using the exact format in
-`docs/SNAPSLOT_SENTINEL_CONTRACT.md` §6. The Sentinel scans PR comments, not the PR body,
-for the Governor verdict.
+Governor APPROVE is committed as `ops/GOVERNOR_APPROVAL.json` (the approval manifest).
+The Sentinel validates the manifest — not PR comments — for APPROVE verdicts on CRITICAL
+and HIGH PRs. See `docs/SNAPSLOT_SENTINEL_CONTRACT.md` §12 for the binding algorithm.
+Governor BLOCK remains comment-based and applies at all risk levels.
 
 ---
 
@@ -177,6 +178,22 @@ The Governor must block any PR where:
 - A deferred feature is exposed
 - Validation is mismatched between frontend and backend
 - Acceptance Ledger is overclaimed
+
+### 7.1 Governor approval process
+
+For CRITICAL and HIGH PRs, the Governor:
+1. Reviews the PR at the current HEAD commit
+2. Posts `GOVERNOR VERDICT: APPROVE FOR MERGE` as a PR comment (audit trail)
+3. The `governor-manifest-commit` job automatically commits `ops/GOVERNOR_APPROVAL.json`
+   with `approved_parent_sha` bound to the exact reviewed commit SHA
+4. Any subsequent commit to the PR branch automatically invalidates the approval
+
+For BLOCK:
+1. Posts `GOVERNOR VERDICT: BLOCK — [reason]` as a PR comment
+2. The `governor-manifest-commit` job pushes an empty commit to trigger re-evaluation
+3. The Sentinel scans for BLOCK comments and fails the PR
+
+See `docs/SNAPSLOT_SENTINEL_CONTRACT.md` §12 for the full manifest specification.
 
 ---
 

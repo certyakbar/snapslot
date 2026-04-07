@@ -107,15 +107,35 @@ None.
 ## Governor verdict
 
 <!--
-  For CRITICAL and HIGH risk changes:
-  Post your verdict as a dedicated PR comment from @certyakbar using the exact format
-  from docs/SNAPSLOT_SENTINEL_CONTRACT.md §6. Do NOT embed the verdict here —
-  the Sentinel scans PR comments, verifies the author is @certyakbar, and uses the
-  latest Governor verdict if multiple verdict comments exist.
-  Posting this comment automatically re-triggers the Sentinel so the PR check updates immediately.
+  APPROVE MODEL (CRITICAL and HIGH risk changes):
 
-  For MEDIUM and LOW risk changes:
+  The Sentinel validates ops/GOVERNOR_APPROVAL.json — NOT PR comments — for APPROVE.
+  Comments are audit trail only.
+
+  To approve:
+  1. Post a PR comment from @certyakbar containing:
+       GOVERNOR VERDICT: APPROVE FOR MERGE
+       Risk level: [CRITICAL | HIGH]
+       Proof reviewed: yes
+       Scope clean: yes
+  2. The governor-manifest-commit job will automatically commit ops/GOVERNOR_APPROVAL.json
+     with approved_parent_sha bound to the current HEAD SHA.
+  3. Do NOT push any additional commits after posting the APPROVE comment.
+     Any commit after the manifest commit automatically invalidates the approval.
+     If a fix is required after approval: push the fix, then re-approve.
+
+  BLOCK MODEL (all risk levels):
+  Post a PR comment from @certyakbar containing:
+    GOVERNOR VERDICT: BLOCK — [reason]
+    Required before merge: [exact action]
+  A BLOCK comment overrides any approval manifest until a newer manifest is issued.
+
+  MEDIUM and LOW risk changes:
   Governor APPROVE is not required. SENTINEL-PASS is sufficient for merge.
-  A GOVERNOR VERDICT: BLOCK comment from @certyakbar blocks merge at any risk level.
-  A later APPROVE from @certyakbar overrides an earlier BLOCK, and vice versa.
+  Governor BLOCK still applies at all risk levels.
+
+  BOOTSTRAP EXCEPTION (Phase 0.75 only):
+  The Phase 0.75 PR introduces the manifest model. The Governor committed
+  ops/GOVERNOR_APPROVAL.json manually to this branch. No APPROVE comment was posted
+  for this PR to avoid triggering the legacy governor-empty-commit job on main.
 -->
