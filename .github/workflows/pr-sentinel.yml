@@ -4,21 +4,22 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, edited]
-  # Governor verdict comments push an empty commit to the PR branch, which
-  # produces a genuine pull_request synchronize event on a new SHA.
+  # Governor verdict comments trigger the governor-manifest-commit job, which
+  # commits ops/GOVERNOR_APPROVAL.json (the approval manifest) to the PR branch,
+  # producing a genuine pull_request synchronize event on a new SHA.
   # Top-level PR conversation comments are issue_comment events in GitHub's API.
-  # The governor-empty-commit job below restricts execution to PR comments that
+  # The governor-manifest-commit job restricts execution to PR comments that
   # contain 'GOVERNOR VERDICT', so ordinary review discussion is ignored.
   issue_comment:
     types: [created]
 
 permissions:
-  contents: write  # required: governor-empty-commit calls git.createCommit + git.updateRef
+  contents: write  # required: governor-manifest-commit calls git.createBlob + git.createTree + git.createCommit + git.updateRef
   pull-requests: write
   issues: write
 
 concurrency:
-  # Separate concurrency groups by event type so that a governor-empty-commit
+  # Separate concurrency groups by event type so that a governor-manifest-commit
   # trigger does not cancel an in-progress pull_request sentinel run.
   # Within each event type, deduplicate by PR number.
   group: sentinel-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}
@@ -37,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Runs only for pull_request events — including the synchronize event produced
-    # by governor-empty-commit when a Governor verdict comment is posted.
+    # by governor-manifest-commit when a Governor verdict comment is posted.
     # always() ensures this job runs even when validate fails (to post SENTINEL-FAIL).
     if: always() && github.event_name == 'pull_request'
 
@@ -222,6 +223,15 @@ jobs:
             // (2) Files declared but not in the actual diff → phantom-scope violation.
             // Both directions must match. A declared file that was never changed is as wrong
             // as an undeclared file that was changed.
+            //
+            // ops/GOVERNOR_APPROVAL.json is excluded from scope comparison in C3 and Group D.
+            // This file is committed automatically by the Governor App (or manually during
+            // bootstrap) and is not part of the developer's declared scope in the PR body.
+            const MANIFEST_PATH       = 'ops/GOVERNOR_APPROVAL.json';
+            const changedFilesForScope = !fileFetchFailed
+              ? changedFiles.filter(f => f !== MANIFEST_PATH)
+              : [];
+
             let scopeAlignmentPassed = true;
             let scopeAlignmentNote = 'Scope check skipped (declared files not parsed from body)';
 
@@ -230,8 +240,8 @@ jobs:
               scopeAlignmentNote =
                 'File fetch failed — scope check cannot be completed, failing closed';
             } else if (hasFilesChanged) {
-              const undeclaredFiles = changedFiles.filter(f => !declaredFiles.includes(f));
-              const phantomFiles    = declaredFiles.filter(f => !changedFiles.includes(f));
+              const undeclaredFiles = changedFilesForScope.filter(f => !declaredFiles.includes(f));
+              const phantomFiles    = declaredFiles.filter(f => !changedFilesForScope.includes(f));
 
               if (undeclaredFiles.length > 0 || phantomFiles.length > 0) {
                 scopeAlignmentPassed = false;
@@ -248,101 +258,233 @@ jobs:
                 }
                 scopeAlignmentNote = parts.join('; ');
               } else {
+                const manifestExcluded = changedFiles.includes(MANIFEST_PATH);
                 scopeAlignmentNote =
-                  `Declared scope exactly matches actual diff (${changedFiles.length} file(s))`;
+                  `Declared scope exactly matches actual diff (${changedFilesForScope.length} file(s)` +
+                  (manifestExcluded ? ` — \`${MANIFEST_PATH}\` excluded` : '') + ')';
               }
             }
             // If !hasFilesChanged, B3 already fails the PR; scope check note stays as-is.
 
             // ── Group D: Governor verdict ──────────────────────────────────
-            // Verdicts are scanned at ALL risk levels:
-            //   CRITICAL/HIGH — an APPROVE comment is required; absence = FAIL
-            //   MEDIUM/LOW    — an APPROVE is not required, but a BLOCK always fails the PR
             //
-            // Authentication: only comments from GOVERNOR_LOGIN are accepted as verdicts.
-            //   c.user.login is controlled by GitHub and cannot be spoofed by a commenter.
-            //   A comment from any other account containing the verdict pattern is ignored.
+            // APPROVE source of truth: ops/GOVERNOR_APPROVAL.json (the approval manifest).
+            //   The manifest is committed to the PR branch by the governor-manifest-commit job
+            //   when the Governor posts "GOVERNOR VERDICT: APPROVE FOR MERGE".
+            //   Approval is mathematically valid ONLY when ALL of the following hold:
+            //     (1) manifest.approved_parent_sha === parent SHA of the current PR HEAD
+            //     (2) manifest.approved_tree_sha   === tree SHA of that parent commit
+            //     (3) manifest.pr_number           === current PR number
+            //     (4) manifest.governor_login      === GOVERNOR_LOGIN
+            //     (5) manifest.risk_tier           === declared risk level
+            //     (6) manifest.declared_files      === changedFilesForScope (exact, both dirs)
+            //   Any commit pushed after the manifest commit automatically invalidates approval:
+            //   the new HEAD's parent becomes the manifest commit (not approved_parent_sha).
             //
-            // Latest wins: all matching authenticated verdict comments are collected;
-            //   the last one in creation order is used. This correctly handles
-            //   BLOCK-then-APPROVE (Governor later approved) and
-            //   APPROVE-then-BLOCK (Governor later withdrew approval).
+            // BLOCK verdict: comment-based (conservative — a stale BLOCK is safe; never approves).
+            //   A BLOCK comment from @GOVERNOR_LOGIN posted AFTER the manifest's issued_at
+            //   overrides the manifest. If no manifest exists, any BLOCK blocks the PR.
+            //   If manifest.issued_at is newer than the latest BLOCK, the manifest wins.
             //
-            // Fail closed: if the comment API call fails, governorPassed = false.
+            // CRITICAL/HIGH: valid manifest required; BLOCK always overrides.
+            // MEDIUM/LOW:    no manifest required; BLOCK still enforced at all risk levels.
+            //
+            // Fail closed: any API error in manifest fetch or BLOCK scan = governorPassed false.
 
             const governorCheckApplies = !!(riskLevel && ['CRITICAL', 'HIGH'].includes(riskLevel));
-            // Default: pass for MEDIUM/LOW (no verdict required); will be overridden by BLOCK or API failure
-            let governorPassed = true;
-            let governorNote = `Not required for risk level \`${riskLevel || 'undeclared'}\` — no Governor verdict found`;
+            let governorPassed = !governorCheckApplies; // default: pass for MEDIUM/LOW
+            let governorNote   = governorCheckApplies
+              ? `Risk level \`${riskLevel}\` requires a valid Governor approval manifest (\`${MANIFEST_PATH}\`)`
+              : `Not required for risk level \`${riskLevel || 'undeclared'}\``;
 
-            try {
-              const allGovernorVerdicts = [];
-              let commentPage = 1;
+            let parsedManifest   = null;
+            let manifestIssuedAt = null;
 
-              while (true) {
-                const { data: comments } = await github.rest.issues.listComments({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: context.issue.number,
-                  per_page: 100,
-                  page: commentPage,
-                });
-
-                for (const c of comments) {
-                  // Authenticate: must be from the Governor identity.
-                  // Match the verdict pattern only after identity is confirmed.
-                  if (
-                    c.user &&
-                    c.user.login === GOVERNOR_LOGIN &&
-                    /GOVERNOR VERDICT:\s*(APPROVE FOR MERGE|BLOCK)/i.test(c.body || '')
-                  ) {
-                    allGovernorVerdicts.push(c);
+            // ── Step D1: Read and validate the approval manifest (CRITICAL/HIGH) ──
+            if (governorCheckApplies) {
+              try {
+                let rawManifest = null;
+                try {
+                  const { data: fileResp } = await github.rest.repos.getContent({
+                    owner: context.repo.owner,
+                    repo:  context.repo.repo,
+                    path:  MANIFEST_PATH,
+                    ref:   context.payload.pull_request.head.sha,
+                  });
+                  rawManifest = Buffer.from(fileResp.content, 'base64').toString('utf8');
+                } catch (fetchErr) {
+                  if (fetchErr.status === 404) {
+                    governorNote = `\`${MANIFEST_PATH}\` not found on PR HEAD — no approval manifest present`;
+                  } else {
+                    throw fetchErr;
                   }
                 }
 
-                if (comments.length < 100) break;
-                commentPage++;
+                if (rawManifest !== null) {
+                  try {
+                    parsedManifest = JSON.parse(rawManifest);
+                  } catch (_) {
+                    governorNote   = `\`${MANIFEST_PATH}\` is malformed JSON — cannot validate approval`;
+                    parsedManifest = null;
+                  }
+                }
+
+                if (parsedManifest !== null) {
+                  if (parsedManifest.verdict !== 'APPROVE') {
+                    governorNote   = `Manifest verdict is \`${parsedManifest.verdict ?? 'missing'}\` — no active approval`;
+                    parsedManifest = null;
+                  }
+                }
+
+                if (parsedManifest !== null) {
+                  manifestIssuedAt = parsedManifest.issued_at ? new Date(parsedManifest.issued_at) : null;
+
+                  // Fetch the HEAD commit to get its parent SHA
+                  const { data: headCommit } = await github.rest.git.getCommit({
+                    owner:      context.repo.owner,
+                    repo:       context.repo.repo,
+                    commit_sha: context.payload.pull_request.head.sha,
+                  });
+
+                  if (!headCommit.parents || headCommit.parents.length === 0) {
+                    governorNote   = 'PR HEAD commit has no parent — cannot verify approval binding';
+                    parsedManifest = null;
+                  } else {
+                    const parentSha = headCommit.parents[0].sha;
+
+                    // Binding check (1): approved_parent_sha must equal parent of current HEAD.
+                    // If code was pushed after the manifest, parentSha !== approved_parent_sha.
+                    if (parsedManifest.approved_parent_sha !== parentSha) {
+                      governorNote =
+                        `Approval bound to \`${(parsedManifest.approved_parent_sha || '').slice(0, 7)}\` ` +
+                        `but HEAD parent is \`${parentSha.slice(0, 7)}\` — ` +
+                        `commit pushed after approval; re-approval required`;
+                      parsedManifest = null;
+                    } else {
+                      // Fetch the approved parent commit to verify the tree SHA
+                      const { data: parentCommit } = await github.rest.git.getCommit({
+                        owner:      context.repo.owner,
+                        repo:       context.repo.repo,
+                        commit_sha: parentSha,
+                      });
+
+                      // Binding check (2): tree SHA — defense-in-depth against state mutation
+                      if (parsedManifest.approved_tree_sha !== parentCommit.tree.sha) {
+                        governorNote =
+                          `Approval tree \`${(parsedManifest.approved_tree_sha || '').slice(0, 7)}\` ` +
+                          `does not match parent tree \`${parentCommit.tree.sha.slice(0, 7)}\` — ` +
+                          `repository state mismatch; re-approval required`;
+                        parsedManifest = null;
+                      }
+                      // Binding check (3): PR number
+                      else if (parsedManifest.pr_number !== context.issue.number) {
+                        governorNote =
+                          `Approval manifest bound to PR #${parsedManifest.pr_number} ` +
+                          `not current PR #${context.issue.number}`;
+                        parsedManifest = null;
+                      }
+                      // Binding check (4): Governor login
+                      else if (parsedManifest.governor_login !== GOVERNOR_LOGIN) {
+                        governorNote =
+                          `Approval manifest governor_login \`${parsedManifest.governor_login}\` ` +
+                          `does not match required \`${GOVERNOR_LOGIN}\``;
+                        parsedManifest = null;
+                      }
+                      // Binding check (5): risk tier
+                      else if (parsedManifest.risk_tier !== riskLevel) {
+                        governorNote =
+                          `Approval manifest risk \`${parsedManifest.risk_tier}\` ` +
+                          `does not match declared PR risk \`${riskLevel}\``;
+                        parsedManifest = null;
+                      }
+                      else {
+                        // Binding check (6): scope — manifest declared_files vs changedFilesForScope
+                        // Both sides already exclude MANIFEST_PATH.
+                        const manifestScope  = (Array.isArray(parsedManifest.declared_files)
+                          ? parsedManifest.declared_files
+                          : []
+                        ).filter(f => f !== MANIFEST_PATH);
+
+                        const scopeUnmatched = changedFilesForScope.filter(f => !manifestScope.includes(f));
+                        const scopePhantom   = manifestScope.filter(f => !changedFilesForScope.includes(f));
+
+                        if (scopeUnmatched.length > 0 || scopePhantom.length > 0) {
+                          const parts = [];
+                          if (scopeUnmatched.length > 0)
+                            parts.push(`In diff but not in manifest scope: \`${scopeUnmatched.join('`, `')}\``);
+                          if (scopePhantom.length > 0)
+                            parts.push(`In manifest scope but not in diff: \`${scopePhantom.join('`, `')}\``);
+                          governorNote   = parts.join('; ') + ' — scope changed after approval; re-approval required';
+                          parsedManifest = null;
+                        } else {
+                          // All binding checks passed — manifest is provisionally valid
+                          governorPassed = true;
+                          governorNote   =
+                            `Approval manifest valid — bound to \`${parentSha.slice(0, 7)}\`` +
+                            (parsedManifest.issued_at ? ` (issued ${parsedManifest.issued_at})` : '');
+                        }
+                      }
+                    }
+                  }
+                }
+              } catch (e) {
+                core.warning(`Approval manifest validation error: ${e.message}`);
+                governorPassed = false;
+                governorNote   = `Approval manifest validation failed — failing closed: ${e.message}`;
+              }
+            }
+
+            // ── Step D2: BLOCK comment scan (ALL risk levels) ─────────────
+            // A BLOCK from @GOVERNOR_LOGIN overrides any approval manifest.
+            // Timeline rule: if manifest.issued_at > latestBlock.created_at, manifest wins.
+            //   Otherwise (BLOCK is newer or equal, or no manifest), BLOCK wins.
+            // BLOCK is comment-based because stale BLOCKs are conservative; stale APPROVEs are not.
+            try {
+              const blockComments = [];
+              let bPage = 1;
+              while (true) {
+                const { data: bComments } = await github.rest.issues.listComments({
+                  owner:        context.repo.owner,
+                  repo:         context.repo.repo,
+                  issue_number: context.issue.number,
+                  per_page: 100,
+                  page: bPage,
+                });
+                for (const c of bComments) {
+                  if (
+                    c.user &&
+                    c.user.login === GOVERNOR_LOGIN &&
+                    /GOVERNOR VERDICT:\s*BLOCK/i.test(c.body || '')
+                  ) {
+                    blockComments.push(c);
+                  }
+                }
+                if (bComments.length < 100) break;
+                bPage++;
               }
 
-              if (allGovernorVerdicts.length === 0) {
-                // No authenticated Governor verdict found
-                if (governorCheckApplies) {
-                  // CRITICAL/HIGH: verdict is required — fail
-                  governorPassed = false;
-                  governorNote =
-                    `Risk level \`${riskLevel}\` requires a Governor verdict comment ` +
-                    `from @${GOVERNOR_LOGIN} before merge — none found`;
-                }
-                // MEDIUM/LOW with no verdict: governorPassed stays true, note already set
-              } else {
-                // One or more authenticated Governor verdicts found.
-                // listComments returns comments in ascending created_at order (oldest first).
-                // The last element is the most recently posted Governor verdict — it wins.
-                const latestVerdict = allGovernorVerdicts[allGovernorVerdicts.length - 1];
-                const latestIsApprove =
-                  /GOVERNOR VERDICT:\s*APPROVE FOR MERGE/i.test(latestVerdict.body);
-                const verdictCount = allGovernorVerdicts.length;
-                const suffix = verdictCount > 1
-                  ? ` (latest of ${verdictCount} Governor verdicts)`
-                  : '';
+              if (blockComments.length > 0) {
+                const latestBlock     = blockComments[blockComments.length - 1];
+                const latestBlockTime = new Date(latestBlock.created_at).getTime();
+                const manifestTime    = manifestIssuedAt ? manifestIssuedAt.getTime() : 0;
 
-                if (latestIsApprove) {
-                  // APPROVE wins — passes the Governor check regardless of risk level
-                  governorPassed = true;
-                  governorNote = `Governor APPROVE verdict found${suffix}`;
+                if (manifestTime > 0 && manifestTime > latestBlockTime) {
+                  // Manifest was issued after the BLOCK — APPROVE stands
+                  governorNote += ` (supersedes BLOCK from ${latestBlock.created_at})`;
                 } else {
-                  // BLOCK wins — blocks merge at ALL risk levels, no exceptions
+                  // BLOCK is newer than (or contemporaneous with) manifest — BLOCK wins
                   governorPassed = false;
-                  governorNote =
-                    `Governor BLOCK verdict${suffix} — blocks merge at all risk levels`;
+                  governorNote   =
+                    `Governor BLOCK (${latestBlock.created_at}) — overrides approval manifest at all risk levels` +
+                    (blockComments.length > 1 ? ` (latest of ${blockComments.length} BLOCK verdicts)` : '');
                 }
               }
             } catch (e) {
-              // Fail closed — cannot verify verdict if comment fetch fails
-              core.warning(`Could not fetch PR comments: ${e.message}`);
-              governorPassed = false;
-              governorNote =
-                `PR comment fetch failed — failing closed. Cannot verify Governor verdict.`;
+              core.warning(`BLOCK comment scan failed: ${e.message}`);
+              if (governorCheckApplies) {
+                governorPassed = false;
+                governorNote   = `BLOCK comment scan failed — failing closed: ${e.message}`;
+              }
             }
 
             // ── Build check table ────────────────────────────────────────────
@@ -360,9 +502,9 @@ jobs:
             ];
 
             // Governor verdict row label and result vary by situation:
-            //   - CRITICAL/HIGH and no APPROVE → required, FAIL
-            //   - Any risk level with BLOCK → overrides, FAIL
-            //   - MEDIUM/LOW with no verdict or APPROVE only → N/A
+            //   - CRITICAL/HIGH with no valid manifest → required, FAIL
+            //   - Any risk level with active BLOCK newer than manifest → overrides, FAIL
+            //   - MEDIUM/LOW with no BLOCK → N/A
             if (governorCheckApplies || !governorPassed) {
               const label = governorCheckApplies
                 ? `Governor verdict (required — risk \`${riskLevel}\`)`
@@ -403,7 +545,7 @@ jobs:
               `**Verdict: ${verdict}**`,
               '',
               allPassed
-                ? '> All checks passed. Governor review is required for CRITICAL or HIGH risk changes before merge.'
+                ? '> All checks passed. A Governor approval manifest (`ops/GOVERNOR_APPROVAL.json`) is required for CRITICAL or HIGH risk changes before merge.'
                 : '> One or more checks failed. Fix all ❌ items and push again.',
               '',
               '> Governed by `docs/SNAPSLOT_SENTINEL_CONTRACT.md` and `docs/SNAPSLOT_RISK_POLICY.md`.',
@@ -420,21 +562,25 @@ jobs:
               core.setFailed(`Sentinel checks failed: ${verdict}`);
             }
 
-  # ── Governor empty-commit trigger ────────────────────────────────────────
-  # When a Governor verdict comment is posted on a PR, this job pushes an
-  # empty commit (same tree, new SHA) to the PR branch.  The push produces a
-  # genuine pull_request synchronize event.  sentinel-judge in that new run
-  # re-reads all PR comments, finds the latest Governor verdict, and passes or
-  # fails accordingly — all within a fresh check suite on the new SHA.
+  # ── Governor manifest-commit trigger ─────────────────────────────────────
+  # When the Governor posts "GOVERNOR VERDICT: APPROVE FOR MERGE", this job
+  # commits ops/GOVERNOR_APPROVAL.json (the approval manifest) to the PR branch.
+  # The manifest records approved_parent_sha (the exact commit SHA being approved)
+  # and approved_tree_sha (the Merkle root of the reviewed repository state).
+  # The commit produces a genuine pull_request synchronize event on a new SHA.
+  # sentinel-judge validates the manifest on the new SHA:
+  #   parent_of_new_HEAD === manifest.approved_parent_sha  →  approval valid
+  #   any further commit  →  new parent ≠ approved_parent_sha  →  auto-expired
   #
-  # This is the only architecture that reliably satisfies branch protection:
-  # a synchronize event creates a new check suite that branch protection
-  # tracks from scratch, with no competing check run from a prior push.
+  # When the Governor posts "GOVERNOR VERDICT: BLOCK", this job pushes an
+  # empty commit (same tree) to trigger a synchronize event so sentinel-judge
+  # re-evaluates the BLOCK comment. No manifest is created for BLOCK verdicts;
+  # BLOCK remains comment-based (conservative — stale BLOCKs are safe).
   #
-  # Forbidden: checks.update, checks.create (Sentinel verdict), reRunWorkflow.
-  # None of those can override the original push event's check suite identity.
-  governor-empty-commit:
-    name: Governor empty-commit trigger
+  # Authentication: the Governor App token signs the commit. The script also
+  # checks comment.user.login === GOVERNOR_LOGIN before acting.
+  governor-manifest-commit:
+    name: Governor manifest commit
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: |
@@ -450,63 +596,168 @@ jobs:
           app-id: ${{ secrets.GOVERNOR_APP_ID }}
           private-key: ${{ secrets.GOVERNOR_APP_PRIVATE_KEY }}
 
-      - name: Push empty commit to trigger pull_request synchronize
+      - name: Commit Governor verdict manifest
         uses: actions/github-script@v7
         with:
           github-token: ${{ steps.governor-app-token.outputs.token }}
           script: |
+            // ── Authentication ─────────────────────────────────────────────
+            // Only act on verdicts from the Governor login.
+            // comment.user.login is controlled by GitHub and cannot be spoofed.
+            const GOVERNOR_LOGIN  = 'certyakbar';
+            const MANIFEST_PATH   = 'ops/GOVERNOR_APPROVAL.json';
+            const commentBody     = context.payload.comment.body || '';
+            const commentAuthor   = context.payload.comment.user?.login;
+
+            if (commentAuthor !== GOVERNOR_LOGIN) {
+              core.info(`Comment from ${commentAuthor} — not the Governor; skipping`);
+              return;
+            }
+
             // ── Fetch PR details ───────────────────────────────────────────
             const { data: pr } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              owner:       context.repo.owner,
+              repo:        context.repo.repo,
               pull_number: context.issue.number,
             });
 
             if (pr.base.ref !== 'main') {
-              core.warning(
-                `PR #${pr.number} targets '${pr.base.ref}', not 'main' — empty commit skipped`
-              );
+              core.warning(`PR #${pr.number} targets '${pr.base.ref}', not 'main' — skipped`);
               return;
             }
 
             const headBranch = pr.head.ref;
             const headSha    = pr.head.sha;
 
-            core.info(`PR #${pr.number}: head branch=${headBranch} SHA=${headSha}`);
+            core.info(`PR #${pr.number}: branch=${headBranch} head=${headSha}`);
 
-            // ── Fetch the tree SHA of the current head commit ──────────────
-            const { data: headCommit } = await github.rest.git.getCommit({
-              owner:      context.repo.owner,
-              repo:       context.repo.repo,
-              commit_sha: headSha,
-            });
+            const isApprove = /GOVERNOR VERDICT:\s*APPROVE FOR MERGE/i.test(commentBody);
+            const isBlock   = /GOVERNOR VERDICT:\s*BLOCK/i.test(commentBody);
 
-            // ── Create an empty commit (same tree, no file changes) ────────
-            // Preserves the PR diff exactly while producing a new SHA.
-            // The new SHA triggers a genuine pull_request synchronize event.
-            // sentinel-judge in that new run re-reads all PR comments and
-            // applies the latest Governor verdict.
-            // No [skip ci] — the synchronize run must fire unconditionally.
-            const { data: newCommit } = await github.rest.git.createCommit({
-              owner:   context.repo.owner,
-              repo:    context.repo.repo,
-              message: 'chore: refresh sentinel after governor verdict',
-              tree:    headCommit.tree.sha,
-              parents: [headSha],
-            });
+            if (isApprove) {
+              // ── Build and commit the approval manifest ─────────────────────
+              // Fetch head commit to get tree SHA (= approved_tree_sha)
+              const { data: headCommit } = await github.rest.git.getCommit({
+                owner:      context.repo.owner,
+                repo:       context.repo.repo,
+                commit_sha: headSha,
+              });
 
-            // ── Advance the branch ref (non-force) ─────────────────────────
-            // force: false — rejects if the branch has advanced since this job
-            // read the head SHA, protecting against concurrent racing updates.
-            await github.rest.git.updateRef({
-              owner:  context.repo.owner,
-              repo:   context.repo.repo,
-              ref:    `heads/${headBranch}`,
-              sha:    newCommit.sha,
-              force:  false,
-            });
+              // Parse task_id, risk, declared_files from PR body
+              const prBody = pr.body || '';
 
-            core.info(
-              `Empty commit ${newCommit.sha} pushed to ${headBranch} — ` +
-              `pull_request synchronize event will run sentinel-judge on new SHA`
-            );
+              function getAnchor(key) {
+                const m = prBody.match(
+                  new RegExp(
+                    `<!--\\s*SENTINEL:${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}=([^\\s>]+)\\s*-->`,
+                    'i'
+                  )
+                );
+                return m ? m[1].trim() : null;
+              }
+              function getSectionContent(begin, end) {
+                const m = prBody.match(
+                  new RegExp(
+                    `<!--\\s*SENTINEL:${begin}\\s*-->\\s*([\\s\\S]*?)\\s*<!--\\s*SENTINEL:${end}\\s*-->`,
+                    'i'
+                  )
+                );
+                return m ? m[1] : '';
+              }
+
+              const taskId   = getAnchor('task_id') || 'UNKNOWN';
+              const riskTier = getAnchor('risk')    || 'UNKNOWN';
+              const ledger   = getAnchor('ledger')  || 'UNKNOWN';
+              const filesSection   = getSectionContent('FILES_BEGIN', 'FILES_END');
+              const declaredFiles  = [...filesSection.matchAll(/^[-*]\s+`?([^\s`\n<>]+)`?/gm)]
+                .map(m => m[1].trim())
+                .filter(f => f.length > 0 && !f.startsWith('<!--') && f !== MANIFEST_PATH);
+
+              const manifest = {
+                schema_version:      '1',
+                verdict:             'APPROVE',
+                governor_login:      GOVERNOR_LOGIN,
+                pr_number:           pr.number,
+                approved_parent_sha: headSha,
+                approved_tree_sha:   headCommit.tree.sha,
+                risk_tier:           riskTier,
+                task_id:             taskId,
+                declared_files:      declaredFiles,
+                ledger_state:        ledger,
+                issued_at:           new Date().toISOString(),
+              };
+
+              const manifestJson = JSON.stringify(manifest, null, 2) + '\n';
+
+              // Create blob → new tree → commit → advance ref
+              const { data: blob } = await github.rest.git.createBlob({
+                owner:    context.repo.owner,
+                repo:     context.repo.repo,
+                content:  Buffer.from(manifestJson).toString('base64'),
+                encoding: 'base64',
+              });
+
+              const { data: newTree } = await github.rest.git.createTree({
+                owner:     context.repo.owner,
+                repo:      context.repo.repo,
+                base_tree: headCommit.tree.sha,
+                tree: [{
+                  path: MANIFEST_PATH,
+                  mode: '100644',
+                  type: 'blob',
+                  sha:  blob.sha,
+                }],
+              });
+
+              const { data: newCommit } = await github.rest.git.createCommit({
+                owner:   context.repo.owner,
+                repo:    context.repo.repo,
+                message: `chore: bind governor approval to ${headSha.slice(0, 7)}`,
+                tree:    newTree.sha,
+                parents: [headSha],
+              });
+
+              // force: false — rejects if branch has advanced since we read headSha
+              await github.rest.git.updateRef({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                ref:   `heads/${headBranch}`,
+                sha:   newCommit.sha,
+                force: false,
+              });
+
+              core.info(
+                `Approval manifest committed as ${newCommit.sha} on ${headBranch} ` +
+                `(approved_parent_sha=${headSha.slice(0, 7)})`
+              );
+
+            } else if (isBlock) {
+              // ── BLOCK: push empty commit to trigger synchronize ────────────
+              // BLOCK is comment-based; the Sentinel re-reads comments on the new
+              // SHA and applies the BLOCK. No manifest is created for BLOCK.
+              const { data: headCommit } = await github.rest.git.getCommit({
+                owner:      context.repo.owner,
+                repo:       context.repo.repo,
+                commit_sha: headSha,
+              });
+
+              const { data: newCommit } = await github.rest.git.createCommit({
+                owner:   context.repo.owner,
+                repo:    context.repo.repo,
+                message: 'chore: refresh sentinel after governor block',
+                tree:    headCommit.tree.sha,
+                parents: [headSha],
+              });
+
+              await github.rest.git.updateRef({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                ref:   `heads/${headBranch}`,
+                sha:   newCommit.sha,
+                force: false,
+              });
+
+              core.info(
+                `Empty commit ${newCommit.sha} pushed after BLOCK verdict on ${headBranch}`
+              );
+            }

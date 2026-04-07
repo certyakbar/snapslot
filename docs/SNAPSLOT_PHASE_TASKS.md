@@ -450,6 +450,47 @@ Phase 1 must not begin until all Phase 0.5 exit criteria are met.
   DISC-0005..DISC-0007 as pending normalization
 
 ---
+## Phase 0.75 — Governance hardening (approval binding)
+
+### Goal
+Replace comment-based Governor APPROVE with a mathematically bound approval manifest
+that expires automatically if code changes after approval. Eliminate the TOCTOU
+(stale-approval) gap before any CRITICAL or HIGH Phase 1 work begins.
+
+### Tasks
+- Rewrite Sentinel Group D: validate `ops/GOVERNOR_APPROVAL.json` instead of scanning
+  PR comments for APPROVE verdicts
+- Replace `governor-empty-commit` job with `governor-manifest-commit` job that commits
+  the approval manifest when Governor posts `GOVERNOR VERDICT: APPROVE FOR MERGE`
+- Update `docs/SNAPSLOT_SENTINEL_CONTRACT.md` with manifest contract (§12) and revised §6
+- Update `docs/SNAPSLOT_RISK_POLICY.md` §6 and §7 with new approval model
+- Update `.github/pull_request_template.md` with new Governor workflow instructions
+- Create `ops/GOVERNOR_APPROVAL.json` (placeholder with `verdict: NONE` until approved)
+
+### Entry criteria
+- Phase 0.5 COMPLETE (ops/TASK_STATE.json shows `status: COMPLETE`)
+
+### Exit criteria
+- `ops/GOVERNOR_APPROVAL.json` exists and schema is documented
+- Sentinel Group D reads the manifest for APPROVE, not PR comments
+- Manifest binding validation passes when approval is current
+- Manifest binding validation fails automatically when any commit is pushed after the manifest
+- BLOCK remains comment-based and overrides any manifest
+- Sacrificial proof PR executed and all 5 proof cases (P1–P5) pass
+
+### Phase gate
+Phase 1 must not begin until all Phase 0.75 exit criteria are met and the sacrificial
+proof PR has been run.
+
+### Proof required
+Sacrificial test PR (opened and closed without merging) demonstrating:
+- **P1**: No manifest (verdict=NONE) → SENTINEL-FAIL for CRITICAL/HIGH
+- **P2**: Valid manifest at correct HEAD → SENTINEL-PASS
+- **P3**: New commit pushed after manifest → SENTINEL-FAIL (automatic expiry)
+- **P4**: BLOCK comment posted after manifest → SENTINEL-FAIL (BLOCK overrides)
+- **P5**: Re-approval after fix → SENTINEL-PASS (re-approval works)
+
+---
 ## Phase 1 — Identity and status
 
 ### Goal

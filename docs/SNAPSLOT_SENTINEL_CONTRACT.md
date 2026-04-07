@@ -208,18 +208,36 @@ The Sentinel must never:
 
 ## 6. Integration with Governor
 
+### 6.1 APPROVE — manifest-bound (CRITICAL and HIGH)
+
 For CRITICAL and HIGH risk PRs, both must be true before merge:
 1. SENTINEL-PASS
-2. Governor posts explicit APPROVE verdict as a PR comment from `@certyakbar`
+2. A valid `ops/GOVERNOR_APPROVAL.json` manifest exists on the PR HEAD commit (see §12)
 
-For MEDIUM and LOW risk PRs, SENTINEL-PASS alone is sufficient for merge, unless the
-Governor has posted a BLOCK comment — a Governor BLOCK fails the PR at all risk levels.
+The manifest is the sole source of truth for Governor APPROVE. PR comments are audit
+trail only. The Sentinel does not scan comments for APPROVE verdicts.
 
-Governor verdict is a PR comment, not embedded in the PR body. The Sentinel scans all
-comments, verifies the author is `@certyakbar`, collects all matching verdict comments,
-and uses the latest one as the active verdict.
+The Governor posts `GOVERNOR VERDICT: APPROVE FOR MERGE` as a PR comment (see format
+below). The `governor-manifest-commit` job (triggered by this comment) reads the current
+PR HEAD SHA and tree SHA, then commits `ops/GOVERNOR_APPROVAL.json` to the PR branch.
+The Sentinel validates the manifest on the resulting synchronize event.
 
-Governor APPROVE format (must appear verbatim in a PR comment from `@certyakbar`):
+For MEDIUM and LOW risk PRs, no manifest is required. SENTINEL-PASS alone is sufficient
+for merge, unless a BLOCK comment is present.
+
+### 6.2 BLOCK — comment-based (all risk levels)
+
+A Governor BLOCK comment from `@certyakbar` overrides any approval manifest at all risk
+levels. BLOCK remains comment-based because a stale BLOCK is conservative (blocks
+something that may now be safe) — whereas a stale APPROVE is dangerous (approves
+something that may no longer have been reviewed).
+
+Timeline rule: if `manifest.issued_at > latestBlock.created_at`, the manifest is newer
+and the BLOCK is considered superseded. If the BLOCK is newer, it wins.
+
+### 6.3 Comment formats
+
+Governor APPROVE format (triggers manifest commit; also serves as audit trail):
 ```
 GOVERNOR VERDICT: APPROVE FOR MERGE
 Risk level: [CRITICAL | HIGH | MEDIUM | LOW]
@@ -227,14 +245,16 @@ Proof reviewed: yes
 Scope clean: yes
 ```
 
-Governor BLOCK format (must appear verbatim in a PR comment from `@certyakbar`):
+Governor BLOCK format:
 ```
 GOVERNOR VERDICT: BLOCK — [reason]
 Required before merge: [exact action]
 ```
 
-A merge without Governor APPROVE on a CRITICAL or HIGH PR is a governance violation,
-even if SENTINEL-PASS is present.
+### 6.4 Governance violations
+
+A merge without a valid approval manifest on a CRITICAL or HIGH PR is a governance
+violation, even if SENTINEL-PASS is present.
 
 A Governor BLOCK on any risk level PR is a governance violation to merge, even if
 SENTINEL-PASS is present, because the Sentinel enforces the BLOCK automatically.
@@ -330,16 +350,21 @@ Group B parsing order:
 
 This keeps the PR readable for the Governor while reducing wording-sensitive failures for honest PRs.
 
-### 10.4 Why HTML comments are used
+### 10.4 ops/GOVERNOR_APPROVAL.json and scope checks
+
+`ops/GOVERNOR_APPROVAL.json` is the Governor approval manifest (see §12). It is
+committed to the PR branch by the `governor-manifest-commit` job (or manually during
+bootstrap) and is excluded from both C3 (declared scope vs actual diff) and the Group D
+scope binding check. It must NOT be listed in the PR body's FILES section.
+
+### 10.5 Why HTML comments are used
 
 HTML comments are:
 
 - present in raw PR body text for deterministic parsing
 - invisible in the rendered PR view
 - resilient to section reordering and prose edits
-- lighter-weight than requiring a committed metadata artifact immediately
-
-A committed machine-readable artifact may be added later, but anchors are the current-phase enforcement mechanism.
+- part of the light machine-readable layer that complements the committed manifest
 
 ---
 
@@ -402,3 +427,100 @@ Before the system may be called hardened, SnapSlot must prove all of the followi
 - a Governor APPROVE comment produces a passing Sentinel check on the correct PR head SHA
 - a Governor BLOCK comment forces failure at any risk level
 - branch protection prevents even `@certyakbar` from merging a failing PR
+
+---
+
+## 12. Approval manifest binding
+
+### 12.1 Purpose
+
+`ops/GOVERNOR_APPROVAL.json` is the committed, machine-readable source of truth for
+Governor APPROVE verdicts on CRITICAL and HIGH risk PRs. It eliminates the TOCTOU
+(stale-approval) gap that exists when approvals are stored only in PR comments.
+
+A comment-based approval is not bound to any commit SHA. Code pushed after the approval
+comment causes the Sentinel to pass a commit that was never reviewed. The manifest model
+eliminates this by binding the approval to the exact parent commit SHA and tree SHA at
+the moment of approval. Any subsequent commit automatically invalidates the approval.
+
+### 12.2 Manifest schema
+
+```json
+{
+  "schema_version": "1",
+  "verdict": "APPROVE | NONE",
+  "governor_login": "certyakbar",
+  "pr_number": 42,
+  "approved_parent_sha": "<SHA of the HEAD commit that was reviewed>",
+  "approved_tree_sha": "<tree SHA of the reviewed HEAD commit>",
+  "risk_tier": "HIGH",
+  "task_id": "T-xxx",
+  "declared_files": ["file1.ts", "file2.ts"],
+  "ledger_state": "NONE | AFFECTED",
+  "issued_at": "2026-04-07T12:00:00Z"
+}
+```
+
+`ops/GOVERNOR_APPROVAL.json` always exists in the repository. When no approval is active,
+`verdict` is `"NONE"` and all binding fields are `null`. The `governor-manifest-commit`
+job overwrites it with `verdict: "APPROVE"` when the Governor posts an APPROVE comment.
+
+### 12.3 Binding validation algorithm
+
+When `sentinel-judge` runs on a CRITICAL or HIGH risk PR it executes:
+
+1. Fetch `ops/GOVERNOR_APPROVAL.json` from the current PR HEAD via the Contents API.
+   If absent or malformed → no approval → FAIL.
+2. Check `manifest.verdict === 'APPROVE'`. If `NONE` → FAIL.
+3. Fetch the current HEAD commit. Get `parentSha = headCommit.parents[0].sha`.
+4. **Parent SHA binding**: `manifest.approved_parent_sha === parentSha`.
+   If not equal, code was pushed after approval → FAIL.
+5. Fetch the parent commit. Get `parentCommit.tree.sha`.
+6. **Tree SHA binding**: `manifest.approved_tree_sha === parentCommit.tree.sha`.
+   Defense-in-depth against state mutation → FAIL if mismatch.
+7. **PR binding**: `manifest.pr_number === current PR number` → FAIL if mismatch.
+8. **Identity binding**: `manifest.governor_login === 'certyakbar'` → FAIL if mismatch.
+9. **Risk binding**: `manifest.risk_tier === declared risk level` → FAIL if mismatch.
+10. **Scope binding**: `manifest.declared_files` (excluding `ops/GOVERNOR_APPROVAL.json`)
+    must exactly match `changedFilesForScope` (actual diff minus `ops/GOVERNOR_APPROVAL.json`),
+    both directions. Undeclared files in diff or phantom files in manifest → FAIL.
+11. After manifest validation, scan for BLOCK comments. If latest BLOCK is newer than
+    `manifest.issued_at`, BLOCK overrides → FAIL.
+
+If all 11 checks pass → `governorPassed = true`.
+
+### 12.4 Invalidation conditions
+
+The approval manifest is automatically invalidated (without any Governor action) when:
+
+- Any commit is pushed after the manifest commit (parent SHA check fails)
+- The PR is retargeted or the manifest is tampered with (tree SHA check fails)
+- The PR number changes (manifest used on a different PR)
+- The risk tier is changed in the PR body after approval
+- The declared scope changes in the PR body after approval
+- A BLOCK comment is posted after the manifest's `issued_at`
+
+### 12.5 How the Governor approves a PR
+
+1. Governor reviews the PR at the current HEAD commit.
+2. Governor posts a comment containing `GOVERNOR VERDICT: APPROVE FOR MERGE`.
+3. The `governor-manifest-commit` job (triggered by the `issue_comment` event, using the
+   main branch workflow) reads the current PR HEAD SHA and tree SHA, parses `task_id`,
+   `risk`, and `declared_files` from the PR body, and commits `ops/GOVERNOR_APPROVAL.json`
+   with `approved_parent_sha = current HEAD SHA`.
+4. The manifest commit produces a `pull_request synchronize` event.
+5. `sentinel-judge` runs on the new SHA, validates the manifest → SENTINEL-PASS.
+
+### 12.6 Bootstrap note
+
+For the Phase 0.75 PR (the PR that introduces this manifest model), the Governor manually
+committed `ops/GOVERNOR_APPROVAL.json` directly to the PR branch because the
+`governor-manifest-commit` job did not yet exist on main's workflow. This is the only PR
+approved via manual manifest creation. All subsequent CRITICAL/HIGH approvals use the
+automated `governor-manifest-commit` job triggered by the APPROVE comment.
+
+### 12.7 BLOCK does not use a manifest
+
+BLOCK verdicts remain comment-based. A BLOCK is a conservative veto — a stale BLOCK
+(blocks a now-safe PR) is less harmful than a stale APPROVE (allows an unreviewed diff).
+The timeline rule in §6.2 ensures a newer APPROVE manifest supersedes an older BLOCK.

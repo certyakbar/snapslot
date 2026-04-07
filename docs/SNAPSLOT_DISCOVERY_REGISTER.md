@@ -33,6 +33,7 @@ found during Phase 0.5 re-anchor that are not yet formally entered into the Cont
 | DISC-0006 | `docs/SNAPSLOT_SENTINEL_CONTRACT.md` exists and is classified HIGH risk in `docs/SNAPSLOT_RISK_POLICY.md` §4, but is not referenced in the Context Recovery Protocol's recovery hierarchy (§4) or file-role list (§2). The Sentinel contract has no anchor in the recovery order. | Context Recovery Protocol re-read | Documentation gap | NORMALIZED — docs/SNAPSLOT_SENTINEL_CONTRACT.md added as step 3 in docs/SNAPSLOT_CONTEXT_RECOVERY_PROTOCOL.md §4 recovery hierarchy |
 | DISC-0007 | `ops/TASK_STATE.json` and `scripts/system-check.js` are new files created by the Phase 0.5 package and are not present in the Risk Policy file map (`docs/SNAPSLOT_RISK_POLICY.md` §4). Because these files do not exist before this PR, no prior classification obligation is violated by this PR. Classification is required before any subsequent PR that modifies these files. | Risk Policy re-read | Planning gap | NORMALIZED — ops/TASK_STATE.json and scripts/system-check.js classified as MEDIUM in docs/SNAPSLOT_RISK_POLICY.md §4 |
 | DISC-0008 | In a one-owner repo, requiring approving reviews deadlocks merge: the sole owner (`@certyakbar`) cannot approve their own PR and no other reviewer exists to satisfy the requirement. Discovered empirically during the sacrificial proof exercise when PRs A and B could not be merged despite SENTINEL-PASS. Resolved by removing required approving reviews from branch protection. The active hard merge gate remains the required `Sentinel verdict` status check. | Sacrificial proof exercise (live GitHub) | Governance configuration gap | NORMALIZED — §11.1 of docs/SNAPSLOT_SENTINEL_CONTRACT.md updated to reflect one-owner repo branch protection configuration; required approving reviews removed from protection settings |
+| DISC-0009 | Governor APPROVE verdict is stored only as a PR comment. Comments are not bound to any commit SHA. Code pushed after the APPROVE comment causes the Sentinel to pass an unreviewed commit (TOCTOU / stale-approval gap). The existing `governor-empty-commit` mechanism solved the check-suite identity problem but did not bind the approval to a specific code state. Any synchronize event after an APPROVE comment satisfies the Sentinel regardless of what changed. | Phase 0.75 governance review | Critical governance gap | RESOLVED — Phase 0.75 (PR #13) replaces comment-based APPROVE with manifest-bound approval model (`ops/GOVERNOR_APPROVAL.json`). Approval is bound to approved_parent_sha + approved_tree_sha; any commit after the manifest commit automatically invalidates it. |
 
 ---
 
@@ -73,6 +74,7 @@ unchanged. Risk level: HIGH (governance spine file updated).
 This register is healthy when:
 - DISC-0001 through DISC-0004 are marked RESOLVED
 - DISC-0005 through DISC-0008 are marked NORMALIZED with truthful references to the destination docs
+- DISC-0009 is marked RESOLVED with reference to Phase 0.75 PR
 - No entry introduces a C-016+ or D-006+ ID
 - No entry silently removes or hides an existing contradiction
 - No entry claims proof that does not exist in the Acceptance Ledger
