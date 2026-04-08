@@ -195,6 +195,10 @@ async function startServer(): Promise<void> {
         throw new HttpError(401, "Business email or password is incorrect.");
       }
 
+      if (business.subscriptionStatus === "deactivated") {
+        throw new HttpError(403, "Your account has been deactivated. Please contact support.");
+      }
+
       const session = createSession(business.id);
       setSessionCookie(res, session.id);
       resetLoginRateLimit(clientIp);
