@@ -26,9 +26,27 @@
       "status": "DONE",
       "pr": 21,
       "files": ["tests/sessionBoundary.test.ts"]
+    },
+    {
+      "id": "T-1-D1",
+      "description": "Implement password reset for business admin accounts",
+      "status": "DONE",
+      "pr": 24,
+      "files": [
+        "server.ts",
+        "notificationService.ts",
+        "public/js/reset-password.js",
+        "public/js/reset-request.js",
+        "public/login.html",
+        "public/reset-password.html",
+        "public/reset-request.html",
+        "tests/passwordReset.test.ts",
+        "tests/payments.test.ts",
+        "package.json"
+      ]
     }
   ],
-  "openPhase1Work": "Phase 1 remaining tasks: password reset (C-001), admin-session behavior for deactivated businesses (C-008 Phase 7 portion), Phase 1 exit criteria audit.",
+  "openPhase1Work": "Phase 1 remaining tasks: admin-session behavior for deactivated businesses (C-008 Phase 7 portion), Phase 1 exit criteria audit.",
   "previousPhase": {
     "phase": "0.75",
     "status": "COMPLETE",
