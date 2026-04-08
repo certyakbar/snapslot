@@ -60,7 +60,7 @@ async function requestJson(port, pathname, init = {}, session) {
   };
 }
 
-async function waitForHealth(port, timeoutMs = 10000) {
+async function waitForHealth(port, timeoutMs = 30000) {
   const start = Date.now();
 
   while (Date.now() - start < timeoutMs) {

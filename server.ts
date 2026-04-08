@@ -13,6 +13,7 @@ import {
   sendCancellationNotification,
   sendPaymentReceived,
   sendPaymentRequired,
+  sendPasswordResetEmail,
   sendRefundIssued,
   sendRescheduleNotification,
 } from "./notificationService.ts";
@@ -29,6 +30,15 @@ type SignupBody = {
 type LoginBody = {
   email: string;
   password: string;
+};
+
+type PasswordResetRequestBody = {
+  email: string;
+};
+
+type PasswordResetBody = {
+  token: string;
+  newPassword: string;
 };
 
 type BusinessParams = {
@@ -60,14 +70,21 @@ type AuthSession = {
   expiresAt: number;
 };
 
+type PasswordResetToken = {
+  businessId: string;
+  expiresAt: number;
+};
+
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
 const SESSION_COOKIE_NAME = "booking_session";
 const SNAPSLOT_ADMIN_SESSION_COOKIE_NAME = "snapslot_admin_session";
 const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const sessions = new Map<string, AuthSession>();
+const resetPasswordTokens = new Map<string, PasswordResetToken>();
 const snapslotAdminSessions = new Set<string>();
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+const RESET_TOKEN_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
 const LOGIN_RATE_LIMIT_MAX = 5;
 const LOGIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 
@@ -208,6 +225,89 @@ async function startServer(): Promise<void> {
         businessId: business.id,
         adminUrl: `/admin/${business.id}`,
       });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.post("/api/request-password-reset", async (req: Request<{}, {}, PasswordResetRequestBody>, res: Response) => {
+    try {
+      const email = typeof req.body.email === "string" ? req.body.email.trim().toLowerCase() : "";
+
+      if (!email) {
+        throw new HttpError(400, "Business email is required.");
+      }
+
+      const business = store.findBusinessByOwnerEmail(email);
+
+      if (business) {
+        const token = randomBytes(32).toString("hex");
+        resetPasswordTokens.set(token, {
+          businessId: business.id,
+          expiresAt: Date.now() + RESET_TOKEN_MAX_AGE_MS,
+        });
+
+        const resetUrl = `${req.protocol}://${req.get("host")}/reset-password?token=${token}`;
+
+        try {
+          await sendPasswordResetEmail({ to: business.ownerEmail, resetUrl });
+        } catch (err) {
+          console.error("Password reset email failed:", err);
+          resetPasswordTokens.delete(token);
+        }
+      }
+
+      res.json({ message: "If that email is registered, a reset link has been sent." });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.post("/api/reset-password", async (req: Request<{}, {}, PasswordResetBody>, res: Response) => {
+    try {
+      const token = typeof req.body.token === "string" ? req.body.token.trim() : "";
+      const newPassword = typeof req.body.newPassword === "string" ? req.body.newPassword : "";
+
+      if (!token || !newPassword) {
+        throw new HttpError(400, "Reset token and new password are required.");
+      }
+
+      const entry = resetPasswordTokens.get(token);
+
+      if (!entry) {
+        throw new HttpError(400, "Invalid or expired reset token.");
+      }
+
+      if (entry.expiresAt <= Date.now()) {
+        resetPasswordTokens.delete(token);
+        throw new HttpError(400, "Invalid or expired reset token.");
+      }
+
+      if (newPassword.length < 8) {
+        throw new HttpError(400, "Password must be at least 8 characters.");
+      }
+
+      const newSalt = randomBytes(16).toString("hex");
+      const newHash = hashPassword(newPassword, newSalt);
+      const business = store.getBusiness(entry.businessId);
+
+      await store.updateBusinessAuth({
+        businessIdOrSlug: business.id,
+        ownerName: business.ownerName,
+        ownerEmail: business.ownerEmail,
+        passwordHash: newHash,
+        passwordSalt: newSalt,
+      });
+
+      resetPasswordTokens.delete(token);
+
+      for (const [sessionId, session] of sessions) {
+        if (session.businessId === entry.businessId) {
+          sessions.delete(sessionId);
+        }
+      }
+
+      res.json({ message: "Password updated. Please log in with your new password." });
     } catch (error) {
       handleError(res, error);
     }
@@ -883,6 +983,14 @@ async function startServer(): Promise<void> {
     }
 
     res.sendFile(path.join(__dirname, "public", "login.html"));
+  });
+
+  app.get("/reset-request", (req: Request, res: Response) => {
+    res.sendFile(path.join(__dirname, "public", "reset-request.html"));
+  });
+
+  app.get("/reset-password", (req: Request, res: Response) => {
+    res.sendFile(path.join(__dirname, "public", "reset-password.html"));
   });
 
   app.listen(PORT, () => {

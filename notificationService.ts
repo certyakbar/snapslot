@@ -111,3 +111,12 @@ export async function sendRefundIssued(params: {
     transport.sendMail({ to: params.businessEmail, subject: `Refund issued: ${params.customerName}`, text: body }),
   ]);
 }
+
+export async function sendPasswordResetEmail(params: {
+  to: string;
+  resetUrl: string;
+}): Promise<void> {
+  const subject = "Reset your SnapSlot password";
+  const body = `You requested a password reset. Use the link below within 1 hour:\n\n${params.resetUrl}\n\nIf you did not request this, ignore this email.`;
+  await transport.sendMail({ to: params.to, subject, text: body });
+}
