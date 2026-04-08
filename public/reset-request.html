@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SnapSlot Sign In</title>
+    <title>Reset SnapSlot Password</title>
     <style>
       .shell {
         width: 100%;
@@ -50,7 +50,6 @@
         display: grid;
         gap: 16px;
       }
-
     </style>
     <link rel="stylesheet" href="/css/snapslot-theme.css" />
   </head>
@@ -59,42 +58,33 @@
       <div class="shell">
         <section class="hero">
           <div class="eyebrow">SnapSlot access</div>
-          <h1>Sign in to your SnapSlot dashboard.</h1>
+          <h1>Reset your SnapSlot password.</h1>
           <p>
-            Only the business owner account can open the admin area and manage services, hours, blocked times,
-            and bookings.
+            Enter the business email for your SnapSlot account. If it is registered, a reset link will be sent.
           </p>
         </section>
 
         <section class="panel">
-          <h2>Sign in</h2>
-          <p class="subcopy">Use the business email and password created when you set up SnapSlot.</p>
+          <h2>Password reset</h2>
+          <p class="subcopy">Use the business email created when you set up SnapSlot.</p>
 
-          <form id="login-form" class="form-stack" novalidate>
+          <form id="reset-request-form" class="form-stack" novalidate>
             <div>
               <label for="email">Business email</label>
               <input id="email" name="email" type="email" maxlength="120" autocomplete="username" required />
             </div>
 
-            <div>
-              <label for="password">Password</label>
-              <input id="password" name="password" type="password" maxlength="120" autocomplete="current-password" required />
-            </div>
-
-            <button id="submit-button" class="primary-button" type="submit">Sign in</button>
-            <div class="footer-note">
-              <a href="/reset-request">Forgot password?</a>
-            </div>
+            <button id="submit-button" class="primary-button" type="submit">Send reset link</button>
             <div id="form-message" class="message" aria-live="polite"></div>
           </form>
 
           <div class="footer-note">
-            Need a business account? <a href="/signup">Create your SnapSlot account</a>
+            Remembered it? <a href="/login">Sign in</a>
           </div>
         </section>
       </div>
     </main>
 
-    <script type="module" src="/js/login.js"></script>
+    <script type="module" src="/js/reset-request.js"></script>
   </body>
 </html>
