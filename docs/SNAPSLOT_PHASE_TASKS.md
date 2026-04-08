@@ -434,7 +434,8 @@ Phase 1 and beyond without context rot.
   all three matrices exist
 
 ### Exit criteria
-- `ops/TASK_STATE.json` exists and is valid JSON with `phase` and `tasks` fields
+- At Phase 0.5 proof time, `ops/TASK_STATE.json` existed and was valid JSON with
+  `phase` set to `"0.5"` and `tasks` as an array
 - `scripts/system-check.js` exists and exits 0 on a clean repo
 - `docs/SNAPSLOT_DISCOVERY_REGISTER.md` exists with Phase 0.5 discoveries logged
 - all discoveries are either RESOLVED or labeled `Unlogged discovery / Pending contradiction-log normalization`
@@ -445,9 +446,18 @@ Phase 1 must not begin until all Phase 0.5 exit criteria are met.
 
 ### Proof required
 - `node scripts/system-check.js` exits 0
-- `ops/TASK_STATE.json` parseable as valid JSON; `phase` field is `"0.5"`; `tasks` is array
+- Phase 0.5 proof-time `ops/TASK_STATE.json` was parseable as valid JSON with
+  `phase` set to `"0.5"` and `tasks` as an array
 - `docs/SNAPSLOT_DISCOVERY_REGISTER.md` shows DISC-0001..DISC-0004 as RESOLVED and
   DISC-0005..DISC-0007 as pending normalization
+
+### Current live task-state structure
+The Phase 0.5 `tasks` array requirement was the proof-time schema for closing Phase 0.5.
+Do not force the live `ops/TASK_STATE.json` back to that obsolete shape after Phase 1
+opens. The current live structure records Phase 1 progress with `phase` and `status`
+strings, a `completedTasks` array, and `previousPhase.phase` / `previousPhase.status`
+strings. `scripts/system-check.js` accepts both the historical Phase 0.5 proof shape
+and this current live progress shape.
 
 ---
 ## Phase 0.75 — Governance hardening (approval binding)
