@@ -2,16 +2,23 @@
   "schema_version": "1",
   "verdict": "APPROVE",
   "governor_login": "certyakbar",
-  "pr_number": 20,
-  "approved_parent_sha": "30ba8898d48d4a42b1b6033e6e5216360c2df7e5",
-  "approved_tree_sha": "14d35faf6b1f0dc239f6e2def8c642929395b648",
+  "pr_number": 24,
+  "approved_parent_sha": "87910df2a150937e2babe52635fb975ac330f01a",
+  "approved_tree_sha": "719abac6ac86a7ff9c7deb9674d706ebcd0f57a2",
   "risk_tier": "CRITICAL",
-  "task_id": "T-1-C1-admin-write-status-gating",
+  "task_id": "T-1-D1",
   "declared_files": [
     "server.ts",
-    "tests/businessStatusGating.test.ts",
+    "notificationService.ts",
+    "public/login.html",
+    "public/reset-request.html",
+    "public/reset-password.html",
+    "public/js/reset-request.js",
+    "public/js/reset-password.js",
+    "tests/passwordReset.test.ts",
+    "tests/payments.test.ts",
     "package.json"
   ],
-  "ledger_state": "NONE",
-  "issued_at": "2026-04-08T01:16:28.915Z"
+  "ledger_state": "AFFECTED",
+  "issued_at": "2026-04-08T21:58:35.047Z"
 }
