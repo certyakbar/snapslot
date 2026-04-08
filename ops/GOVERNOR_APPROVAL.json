@@ -2,16 +2,16 @@
   "schema_version": "1",
   "verdict": "APPROVE",
   "governor_login": "certyakbar",
-  "pr_number": 19,
-  "approved_parent_sha": "dfa4d214de5ab5929957b02e0067667b02902c8a",
-  "approved_tree_sha": "dd6c17fabbe84f9ca92ca2ec73236049a2aa089e",
+  "pr_number": 20,
+  "approved_parent_sha": "30ba8898d48d4a42b1b6033e6e5216360c2df7e5",
+  "approved_tree_sha": "14d35faf6b1f0dc239f6e2def8c642929395b648",
   "risk_tier": "CRITICAL",
-  "task_id": "T-1-B1-deactivated-login-block",
+  "task_id": "T-1-C1-admin-write-status-gating",
   "declared_files": [
     "server.ts",
-    "tests/deactivatedLogin.test.ts",
+    "tests/businessStatusGating.test.ts",
     "package.json"
   ],
   "ledger_state": "NONE",
-  "issued_at": "2026-04-08T00:32:21.190Z"
+  "issued_at": "2026-04-08T01:16:28.915Z"
 }

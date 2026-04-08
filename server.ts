@@ -466,6 +466,8 @@ async function startServer(): Promise<void> {
   app.put("/api/business/:businessId/payment-config", async (req: Request<BusinessParams>, res: Response) => {
     try {
       assertBusinessSession(req, res, req.params.businessId);
+      const business = store.getBusiness(req.params.businessId);
+      if (!assertBusinessActive(business, res)) return;
       const nextConfig: PaymentConfig = {
         depositEnabled: Boolean(req.body.depositEnabled),
         depositType: req.body.depositType === "percentage" ? "percentage" : "fixed",
@@ -492,6 +494,8 @@ async function startServer(): Promise<void> {
   app.post("/api/business/:businessId/services", async (req: Request<BusinessParams>, res: Response) => {
     try {
       assertBusinessSession(req, res, req.params.businessId);
+      const business = store.getBusiness(req.params.businessId);
+      if (!assertBusinessActive(business, res)) return;
       const service = await store.createService({
         businessId: req.params.businessId,
         name: String(req.body.name ?? ""),
@@ -512,6 +516,8 @@ async function startServer(): Promise<void> {
     async (req: Request<ServiceParams>, res: Response) => {
       try {
         assertBusinessSession(req, res, req.params.businessId);
+        const business = store.getBusiness(req.params.businessId);
+        if (!assertBusinessActive(business, res)) return;
         const service = await store.updateService({
           businessId: req.params.businessId,
           serviceId: req.params.serviceId,
@@ -536,6 +542,8 @@ async function startServer(): Promise<void> {
     async (req: Request<ServiceParams>, res: Response) => {
       try {
         assertBusinessSession(req, res, req.params.businessId);
+        const business = store.getBusiness(req.params.businessId);
+        if (!assertBusinessActive(business, res)) return;
         await store.deleteService(req.params.businessId, req.params.serviceId);
         res.status(204).send();
       } catch (error) {
@@ -557,6 +565,8 @@ async function startServer(): Promise<void> {
   app.put("/api/business/:businessId/availability", async (req: Request<BusinessParams>, res: Response) => {
     try {
       assertBusinessSession(req, res, req.params.businessId);
+      const business = store.getBusiness(req.params.businessId);
+      if (!assertBusinessActive(business, res)) return;
       const availability = Array.isArray(req.body.availability) ? req.body.availability : [];
 
       const updated = await store.updateWeeklyAvailability({
@@ -589,6 +599,8 @@ async function startServer(): Promise<void> {
   app.post("/api/business/:businessId/blocked-times", async (req: Request<BusinessParams>, res: Response) => {
     try {
       assertBusinessSession(req, res, req.params.businessId);
+      const business = store.getBusiness(req.params.businessId);
+      if (!assertBusinessActive(business, res)) return;
       const blockedTime = await store.createBlockedTime({
         businessId: req.params.businessId,
         start: new Date(req.body.start),
@@ -607,6 +619,8 @@ async function startServer(): Promise<void> {
     async (req: Request<BlockedTimeParams>, res: Response) => {
       try {
         assertBusinessSession(req, res, req.params.businessId);
+        const business = store.getBusiness(req.params.businessId);
+        if (!assertBusinessActive(business, res)) return;
         const blockedTime = await store.updateBlockedTime({
           businessId: req.params.businessId,
           blockedTimeId: req.params.blockedTimeId,
@@ -627,6 +641,8 @@ async function startServer(): Promise<void> {
     async (req: Request<BlockedTimeParams>, res: Response) => {
       try {
         assertBusinessSession(req, res, req.params.businessId);
+        const business = store.getBusiness(req.params.businessId);
+        if (!assertBusinessActive(business, res)) return;
         await store.deleteBlockedTime(req.params.businessId, req.params.blockedTimeId);
         res.status(204).send();
       } catch (error) {
@@ -667,6 +683,7 @@ async function startServer(): Promise<void> {
     try {
       assertBusinessSession(req, res, req.params.businessId);
       const business = store.getBusiness(req.params.businessId);
+      if (!assertBusinessActive(business, res)) return;
       const booking = await store.createBooking({
         businessId: req.params.businessId,
         requestedStart: new Date(req.body.requestedStart),
@@ -716,6 +733,7 @@ async function startServer(): Promise<void> {
       try {
         assertBusinessSession(req, res, req.params.businessId);
         const business = store.getBusiness(req.params.businessId);
+        if (!assertBusinessActive(business, res)) return;
         const booking = await store.cancelBooking(req.params.businessId, req.params.bookingId);
         sendCancellationNotification({
           customerEmail: booking.customer.email ?? "",
@@ -737,6 +755,7 @@ async function startServer(): Promise<void> {
       try {
         assertBusinessSession(req, res, req.params.businessId);
         const business = store.getBusiness(req.params.businessId);
+        if (!assertBusinessActive(business, res)) return;
         const booking = await store.rescheduleBooking(
           req.params.businessId,
           req.params.bookingId,
@@ -763,6 +782,7 @@ async function startServer(): Promise<void> {
       try {
         assertBusinessSession(req, res, req.params.businessId);
         const business = store.getBusiness(req.params.businessId);
+        if (!assertBusinessActive(business, res)) return;
         const update: UpdatePaymentStatusInput = {
           businessId: req.params.businessId,
           bookingId: req.params.bookingId,
