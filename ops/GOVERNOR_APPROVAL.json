@@ -1,13 +1,17 @@
 {
-    "schema_version": "1",
-    "verdict": "NONE",
-    "governor_login": null,
-    "pr_number": null,
-    "approved_parent_sha": null,
-    "approved_tree_sha": null,
-    "risk_tier": null,
-    "task_id": null,
-    "declared_files": null,
-    "ledger_state": null,
-    "issued_at": null
+  "schema_version": "1",
+  "verdict": "APPROVE",
+  "governor_login": "certyakbar",
+  "pr_number": 19,
+  "approved_parent_sha": "dfa4d214de5ab5929957b02e0067667b02902c8a",
+  "approved_tree_sha": "dd6c17fabbe84f9ca92ca2ec73236049a2aa089e",
+  "risk_tier": "CRITICAL",
+  "task_id": "T-1-B1-deactivated-login-block",
+  "declared_files": [
+    "server.ts",
+    "tests/deactivatedLogin.test.ts",
+    "package.json"
+  ],
+  "ledger_state": "NONE",
+  "issued_at": "2026-04-08T00:32:21.190Z"
 }
