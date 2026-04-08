@@ -1,64 +1,37 @@
 {
-  "phase": "0.75",
-  "phaseName": "Governance Hardening",
-  "branch": "chore/phase-0-75-governance-hardening",
-  "headCommitAtPhaseOpen": "0245f43",
-  "status": "COMPLETE",
-  "lastUpdated": "2026-04-07",
-  "tasks": [
+  "phase": "1",
+  "phaseName": "Identity and Status",
+  "branch": "feat/phase-1",
+  "headCommitAtPhaseOpen": "839ef3ca96eabf22ea697b5d7607064db90157f7",
+  "status": "IN_PROGRESS",
+  "lastUpdated": "2026-04-08",
+  "completedTasks": [
     {
-      "id": "0.75-T1",
-      "description": "Rewrite Sentinel Group D: validate ops/GOVERNOR_APPROVAL.json instead of scanning PR comments for APPROVE verdicts",
+      "id": "T-1-B1",
+      "description": "Block deactivated business admin login at POST /api/login with a clear account-status message",
       "status": "DONE",
-      "files": [".github/workflows/pr-sentinel.yml"]
+      "pr": 19,
+      "files": ["server.ts", "tests/deactivatedLogin.test.ts", "package.json"]
     },
     {
-      "id": "0.75-T2",
-      "description": "Replace governor-empty-commit job with governor-manifest-commit job that commits the approval manifest when Governor posts GOVERNOR VERDICT: APPROVE FOR MERGE",
+      "id": "T-1-C1",
+      "description": "Gate all admin write routes with assertBusinessActive to enforce suspended/deactivated write-blocking",
       "status": "DONE",
-      "files": [".github/workflows/pr-sentinel.yml"]
+      "pr": 20,
+      "files": ["server.ts", "tests/businessStatusGating.test.ts", "package.json"]
     },
     {
-      "id": "0.75-T3",
-      "description": "Update docs/SNAPSLOT_SENTINEL_CONTRACT.md with manifest contract (section 12) and revised section 6",
+      "id": "T-1-A1",
+      "description": "Audit owner/business session boundaries and prove cross-surface isolation fails closed",
       "status": "DONE",
-      "files": ["docs/SNAPSLOT_SENTINEL_CONTRACT.md"]
-    },
-    {
-      "id": "0.75-T4",
-      "description": "Update docs/SNAPSLOT_RISK_POLICY.md sections 6 and 7 with new approval model",
-      "status": "DONE",
-      "files": ["docs/SNAPSLOT_RISK_POLICY.md"]
-    },
-    {
-      "id": "0.75-T5",
-      "description": "Update .github/pull_request_template.md with new Governor workflow instructions",
-      "status": "DONE",
-      "files": [".github/pull_request_template.md"]
-    },
-    {
-      "id": "0.75-T6",
-      "description": "Create ops/GOVERNOR_APPROVAL.json placeholder with verdict NONE until approved",
-      "status": "DONE",
-      "files": ["ops/GOVERNOR_APPROVAL.json"]
+      "pr": 21,
+      "files": ["tests/sessionBoundary.test.ts"]
     }
   ],
-  "exitCriteria": [
-    "ops/GOVERNOR_APPROVAL.json exists and schema is documented",
-    "Sentinel Group D reads the manifest for APPROVE, not PR comments",
-    "Manifest binding validation passes when approval is current",
-    "Manifest binding validation fails automatically when any commit is pushed after the manifest",
-    "BLOCK remains comment-based and overrides any manifest",
-    "Sacrificial proof PR executed and all 5 proof cases (P1-P5) pass"
-  ],
-  "proofRequired": [
-    "P1: No manifest (verdict=NONE) -> SENTINEL-FAIL for CRITICAL/HIGH",
-    "P2: Valid manifest at correct HEAD -> SENTINEL-PASS",
-    "P3: New commit pushed after manifest -> SENTINEL-FAIL (automatic expiry)",
-    "P4: BLOCK comment posted after manifest -> SENTINEL-FAIL (BLOCK overrides)",
-    "P5: Re-approval after fix -> SENTINEL-PASS (re-approval works)"
-  ],
-  "proofRecord": "PR #13 implemented the manifest model; PR #16 executed P1-P5 sacrificial proof and was closed without merge; PR #17 recorded the PASS ledger proof.",
-  "openDiscoveries": "DISC-0009 RESOLVED by the Phase 0.75 manifest-bound approval model.",
-  "deferredToPhase1Preflight": []
+  "openPhase1Work": "Phase 1 remaining tasks: password reset (C-001), admin-session behavior for deactivated businesses (C-008 Phase 7 portion), Phase 1 exit criteria audit.",
+  "previousPhase": {
+    "phase": "0.75",
+    "status": "COMPLETE",
+    "proofRecord": "PR #13 implemented the manifest model; PR #16 executed P1-P5 sacrificial proof; PR #17 recorded the PASS ledger proof."
+  }
 }
