@@ -36,6 +36,20 @@ function exists(rel) {
   return existsSync(resolve(ROOT, rel));
 }
 
+function taskStateHasSupportedShape(j) {
+  const hasPhase05ProofShape = j.phase === "0.5" && Array.isArray(j.tasks);
+  const hasLiveProgressShape =
+    typeof j.phase === "string" &&
+    typeof j.status === "string" &&
+    Array.isArray(j.completedTasks) &&
+    j.previousPhase !== null &&
+    typeof j.previousPhase === "object" &&
+    typeof j.previousPhase.phase === "string" &&
+    typeof j.previousPhase.status === "string";
+
+  return hasPhase05ProofShape || hasLiveProgressShape;
+}
+
 console.log("\nSnapSlot System Check — Phase 0.5 Operational Continuity");
 console.log("=".repeat(57) + "\n");
 
@@ -73,12 +87,14 @@ if (exists("ops/TASK_STATE.json")) {
   try {
     const raw = readFileSync(resolve(ROOT, "ops/TASK_STATE.json"), "utf-8");
     const j   = JSON.parse(raw);
-    valid  = typeof j.phase === "string" && Array.isArray(j.tasks);
-    detail = valid ? "" : "missing required fields: phase (string), tasks (array)";
+    valid  = taskStateHasSupportedShape(j);
+    detail = valid
+      ? ""
+      : "expected Phase 0.5 proof shape (phase \"0.5\" + tasks array) or current live progress shape (phase/status strings, completedTasks array, previousPhase.phase/status strings)";
   } catch (e) {
     detail = String(e.message ?? e);
   }
-  check("ops/TASK_STATE.json — valid JSON with required fields", valid, detail);
+  check("ops/TASK_STATE.json — valid JSON with supported task-state shape", valid, detail);
 }
 
 if (exists("docs/SNAPSLOT_PHASE_TASKS.md")) {
