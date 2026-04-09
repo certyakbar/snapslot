@@ -51,14 +51,17 @@ Type: string
 Purpose: Human-readable name. One sentence maximum.
 
 **`phase`**
-Type: string (Phase 0 through Phase 11, or Phase N/A for governance-only)
+Type: string (Phase 0 through Phase 12, or Phase N/A for governance-only)
 Purpose: Which Phase Tasks phase owns this work.
 Rule: must map to an entry in docs/SNAPSLOT_PHASE_TASKS.md.
 
 **`workflow`**
-Type: string (Workflow A through Workflow L)
+Type: string (Workflow A through Workflow L, or N/A for governance-only tasks)
 Purpose: Which workflow letter from Phase Tasks §5 this task closes or advances.
 Rule: must map to a workflow defined in docs/SNAPSLOT_PHASE_TASKS.md §5.
+Exception: when `phase` is `Phase N/A`, `workflow` must be `N/A`.
+A governance-only task does not advance any product workflow.
+N/A is not valid when `phase` is any value from Phase 0 through Phase 12.
 
 **`risk_level`**
 Type: CRITICAL | HIGH | MEDIUM | LOW
@@ -152,8 +155,8 @@ TASK PACKET
 
 task_id:        T-{phase}-{seq}-{descriptor}
 task_name:      [one sentence]
-phase:          Phase {N}
-workflow:       Workflow {Letter} — {name}
+phase:          Phase {N}  (Phase 0 through Phase 12, or Phase N/A for governance-only)
+workflow:       Workflow {Letter} — {name}  (or N/A if and only if phase is Phase N/A)
 risk_level:     CRITICAL | HIGH | MEDIUM | LOW
 actor_surface:  [PLATFORM_OWNER | BUSINESS_ADMIN | CUSTOMER | INTERNAL]
 
