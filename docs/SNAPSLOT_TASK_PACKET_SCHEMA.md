@@ -54,6 +54,9 @@ Purpose: Human-readable name. One sentence maximum.
 Type: string (Phase 0 through Phase 12, or Phase N/A for governance-only)
 Purpose: Which Phase Tasks phase owns this work.
 Rule: must map to an entry in docs/SNAPSLOT_PHASE_TASKS.md.
+Exception: Phase N/A is valid for governance-only tasks and has no Phase Tasks entry.
+A governance-only task does not belong to any product phase.
+Phase N/A is not valid when `workflow` is any value from Workflow A through Workflow L.
 
 **`workflow`**
 Type: string (Workflow A through Workflow L, or N/A for governance-only tasks)
