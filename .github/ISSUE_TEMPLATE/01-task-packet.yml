@@ -1,0 +1,155 @@
+name: Task Packet
+description: Structured Governor-to-Codex task packet intake only.
+title: "TASK PACKET: "
+labels:
+  - task-packet
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Structured intake only.
+        This form does not execute, compile, enforce, or replace Sentinel/governance behavior.
+  - type: input
+    id: task_id
+    attributes:
+      label: task_id
+      placeholder: T-{phase}-{seq}-{descriptor}
+      description: "Type: string. Format: T-{phase}-{sequence}-{descriptor}."
+    validations:
+      required: true
+  - type: input
+    id: task_name
+    attributes:
+      label: task_name
+      description: "Type: string. Human-readable name. One sentence maximum."
+    validations:
+      required: true
+  - type: input
+    id: phase
+    attributes:
+      label: phase
+      description: "Type: string (Phase 0 through Phase 12, or Phase N/A for governance-only). Must map to docs/SNAPSLOT_PHASE_TASKS.md when applicable."
+    validations:
+      required: true
+  - type: input
+    id: workflow
+    attributes:
+      label: workflow
+      description: "Type: string (Workflow A through Workflow L, or N/A for governance-only). Must map to docs/SNAPSLOT_PHASE_TASKS.md §5 when applicable."
+    validations:
+      required: true
+  - type: dropdown
+    id: risk_level
+    attributes:
+      label: risk_level
+      description: "Type: CRITICAL | HIGH | MEDIUM | LOW."
+      options:
+        - CRITICAL
+        - HIGH
+        - MEDIUM
+        - LOW
+    validations:
+      required: true
+  - type: checkboxes
+    id: actor_surface
+    attributes:
+      label: actor_surface
+      description: "Type: one or more of PLATFORM_OWNER | BUSINESS_ADMIN | CUSTOMER | INTERNAL."
+      options:
+        - label: PLATFORM_OWNER
+        - label: BUSINESS_ADMIN
+        - label: CUSTOMER
+        - label: INTERNAL
+    validations:
+      required: true
+  - type: textarea
+    id: allowed_files
+    attributes:
+      label: allowed_files
+      description: "Type: list of exact file paths. Complete and exhaustive list of files Codex may touch."
+    validations:
+      required: true
+  - type: textarea
+    id: forbidden_files
+    attributes:
+      label: forbidden_files
+      description: "Type: list of exact file paths or patterns. Explicit files Codex must not touch."
+    validations:
+      required: true
+  - type: textarea
+    id: required_behavior
+    attributes:
+      label: required_behavior
+      description: "Type: freeform text. Exact description of what must change, why, and the correct end state."
+    validations:
+      required: true
+  - type: textarea
+    id: forbidden_behavior
+    attributes:
+      label: forbidden_behavior
+      description: "Type: freeform text. Explicit list of what Codex must not do."
+    validations:
+      required: true
+  - type: textarea
+    id: validation_commands
+    attributes:
+      label: validation_commands
+      description: "Type: list of exact shell commands. Minimum required commands are npx tsc --noEmit and npm test."
+      render: shell
+      value: |
+        1. npx tsc --noEmit
+        2. npm test
+    validations:
+      required: true
+  - type: textarea
+    id: stop_rule
+    attributes:
+      label: stop_rule
+      description: "Type: freeform text. Conditions under which Codex must stop immediately and report instead of continuing."
+    validations:
+      required: true
+  - type: textarea
+    id: return_format
+    attributes:
+      label: return_format
+      description: "Type: freeform text. Exact output format Codex must use in its response."
+      value: "AGENTS.md §OUTPUT FORMAT (exact outputs, not paraphrases)"
+    validations:
+      required: true
+  - type: textarea
+    id: known_contradictions
+    attributes:
+      label: known_contradictions
+      description: "Type: list of Contradiction Log IDs relevant to this task."
+      placeholder: |
+        C-XXX: description - must not be silently resolved
+        None relevant
+    validations:
+      required: false
+  - type: dropdown
+    id: docs_may_change
+    attributes:
+      label: docs_may_change
+      description: "Type: boolean + file list if true."
+      options:
+        - false
+        - true
+    validations:
+      required: false
+  - type: dropdown
+    id: ledger_update_required
+    attributes:
+      label: ledger_update_required
+      description: "Type: boolean + row names if true."
+      options:
+        - false
+        - true
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: notes
+      description: "Type: freeform text. Hard facts only - no vague instructions."
+    validations:
+      required: false
