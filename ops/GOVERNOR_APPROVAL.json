@@ -3,13 +3,13 @@
   "verdict": "APPROVE",
   "governor_login": "certyakbar",
   "pr_number": 27,
-  "approved_parent_sha": "e60dd6be8207ea61671ca03e494068edc34fd6ec",
-  "approved_tree_sha": "4318a5fe82478bd2abcf57ff3c263c612ec45276",
+  "approved_parent_sha": "aec2b00fb891d1fc59fa5ddf140a56399ccacaff",
+  "approved_tree_sha": "e3d3cb1a7f8f174a66e58dfe0770aecf34515ea1",
   "risk_tier": "HIGH",
   "task_id": "T-GOV-0-schema-workflow-na",
   "declared_files": [
     "docs/SNAPSLOT_TASK_PACKET_SCHEMA.md"
   ],
   "ledger_state": "NONE",
-  "issued_at": "2026-04-09T14:30:50.749Z"
+  "issued_at": "2026-04-09T14:37:15.324Z"
 }
