@@ -2,23 +2,14 @@
   "schema_version": "1",
   "verdict": "APPROVE",
   "governor_login": "certyakbar",
-  "pr_number": 24,
-  "approved_parent_sha": "87910df2a150937e2babe52635fb975ac330f01a",
-  "approved_tree_sha": "719abac6ac86a7ff9c7deb9674d706ebcd0f57a2",
-  "risk_tier": "CRITICAL",
-  "task_id": "T-1-D1",
+  "pr_number": 27,
+  "approved_parent_sha": "e60dd6be8207ea61671ca03e494068edc34fd6ec",
+  "approved_tree_sha": "4318a5fe82478bd2abcf57ff3c263c612ec45276",
+  "risk_tier": "HIGH",
+  "task_id": "T-GOV-0-schema-workflow-na",
   "declared_files": [
-    "server.ts",
-    "notificationService.ts",
-    "public/login.html",
-    "public/reset-request.html",
-    "public/reset-password.html",
-    "public/js/reset-request.js",
-    "public/js/reset-password.js",
-    "tests/passwordReset.test.ts",
-    "tests/payments.test.ts",
-    "package.json"
+    "docs/SNAPSLOT_TASK_PACKET_SCHEMA.md"
   ],
-  "ledger_state": "AFFECTED",
-  "issued_at": "2026-04-08T21:58:35.047Z"
+  "ledger_state": "NONE",
+  "issued_at": "2026-04-09T14:30:50.749Z"
 }
