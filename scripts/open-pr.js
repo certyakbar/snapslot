@@ -12,12 +12,34 @@ const USAGE = [
   "       node scripts/open-pr.js --help",
 ].join("\n");
 const SECTION_1_TITLE = "EXECUTOR PROMPT";
+const SECTION_2_FALLBACK_TITLE = "FALLBACK PACKET";
 const SECTION_2_TITLE = "PROOF CAPTURE";
 const SECTION_3_TITLE = "PR BODY DRAFT";
 const TYPECHECK_HEADING = "**TypeScript typecheck** (`npx tsc --noEmit`):";
 const TEST_HEADING = "**Test suite** (`npm test`):";
 const TYPECHECK_PLACEHOLDER = "<!-- paste exact output \u2014 not paraphrased -->";
 const TEST_PLACEHOLDER = "<!-- paste exact output \u2014 not paraphrased. Show all suite results. -->";
+const SCOPE_HEADING = "## Scope declaration";
+const REQUIRED_BEHAVIOR_HEADING = "## Required behavior";
+const FORBIDDEN_BEHAVIOR_HEADING = "## Forbidden behavior confirmation";
+const VALIDATION_PROOF_HEADING = "## Validation proof";
+const BLOCKING_CONDITIONS_HEADING = "## Blocking conditions";
+const FORBIDDEN_BEHAVIOR_CHECKLIST = [
+  "- [x] No unrelated edits (no opportunistic cleanup, refactor, or churn)",
+  "- [x] No deferred feature exposure (no_show, partially_refunded, staff roles, customer accounts)",
+  "- [x] No fake completion claim (no PASS without proof)",
+  "- [x] No silent behavior change",
+  "- [x] Scope matches task packet exactly",
+];
+const BLOCKING_CONDITIONS_CHECKLIST = [
+  "- [x] Typecheck passes",
+  "- [x] All tests pass",
+  "- [x] Scope is clean \u2014 no files touched outside task packet",
+  "- [x] Ledger rows updated honestly",
+  "- [x] No contradiction silently patched",
+  "- [x] Risk level declared correctly per docs/SNAPSLOT_RISK_POLICY.md",
+  "- [x] Proof is exact output, not paraphrased",
+];
 
 main();
 
@@ -48,9 +70,11 @@ function main() {
   }
 
   let prBodyDraft;
+  let compiledPacket;
 
   try {
     prBodyDraft = extractSection(compileTaskResult.stdout ?? "", 3, SECTION_3_TITLE, "compile-task output");
+    compiledPacket = parseCompiledPacket(compileTaskResult.stdout ?? "");
   } catch (error) {
     writeStderr(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(1);
@@ -95,7 +119,7 @@ function main() {
 
   try {
     const proofEntries = parseProofEntries(proofSection);
-    assembledBody = assemblePrBody(prBodyDraft, proofEntries);
+    assembledBody = assemblePrBody(prBodyDraft, compiledPacket, proofEntries);
   } catch (error) {
     writeStderr(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(1);
@@ -183,6 +207,16 @@ function parseTaskMetadataFromCompileOutput(output) {
   };
 }
 
+function parseCompiledPacket(output) {
+  const section = extractSection(output, 2, SECTION_2_FALLBACK_TITLE, "compile-task output");
+
+  return {
+    allowedFiles: parseBulletList(extractLabeledBlock(section, "ALLOWED FILES (touch only these):", "FORBIDDEN FILES (do not touch):")),
+    forbiddenFiles: parseBulletList(extractLabeledBlock(section, "FORBIDDEN FILES (do not touch):", "REQUIRED BEHAVIOR:")),
+    requiredBehavior: extractLabeledBlock(section, "REQUIRED BEHAVIOR:", "FORBIDDEN BEHAVIOR:"),
+  };
+}
+
 function fetchIssueTaskMetadata(issueNumber) {
   const result = spawnSync("gh", ["issue", "view", issueNumber, "--json", "title,body"], {
     cwd: ROOT,
@@ -228,9 +262,31 @@ function extractIssueField(body, fieldName) {
   return match ? match[1].trim() : "";
 }
 
+function extractLabeledBlock(sectionBody, startLabel, endLabel) {
+  const pattern = new RegExp(
+    `^${escapeRegExp(startLabel)}\\r?\\n([\\s\\S]*?)(?=^${escapeRegExp(endLabel)}\\r?$)`,
+    "m"
+  );
+  const match = sectionBody.match(pattern);
+
+  if (!match) {
+    throw new Error(`Error: failed to parse ${startLabel} from SECTION 2  FALLBACK PACKET.`);
+  }
+
+  return match[1].trim();
+}
+
+function parseBulletList(raw) {
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^-\s+/.test(line))
+    .map((line) => line.replace(/^-\s+/, "").trim());
+}
+
 function parseProofEntries(sectionBody) {
   const entryPattern =
-    /Command (\d+): ([^\r\n]+)\r?\nExit: \d+  (?:PASS|FAIL)\r?\n\[paste this block into the PR body proof section for this command\]\r?\n(```text[\s\S]*?```)(?=\r?\n\r?\nCommand \d+:|$)/g;
+    /Command (\d+): ([^\r\n]+)\r?\n(Exit: \d+  (?:PASS|FAIL))\r?\n\[paste this block into the PR body proof section for this command\]\r?\n(```text[\s\S]*?```)(?=\r?\n\r?\nCommand \d+:|(?:\r?\n)*$)/g;
   const entries = [];
   let match = entryPattern.exec(sectionBody);
 
@@ -238,7 +294,8 @@ function parseProofEntries(sectionBody) {
     entries.push({
       index: Number.parseInt(match[1], 10),
       command: match[2],
-      fence: match[3],
+      exitLine: match[3],
+      fence: match[4],
     });
     match = entryPattern.exec(sectionBody);
   }
@@ -250,7 +307,51 @@ function parseProofEntries(sectionBody) {
   return entries.sort((left, right) => left.index - right.index);
 }
 
-function assemblePrBody(prBodyDraft, proofEntries) {
+function assemblePrBody(prBodyDraft, compiledPacket, proofEntries) {
+  const newline = detectNewline(prBodyDraft);
+  ensurePlaceholder(prBodyDraft, TYPECHECK_PLACEHOLDER);
+  ensurePlaceholder(prBodyDraft, TEST_PLACEHOLDER);
+
+  let output = replaceSectionBody(prBodyDraft, SCOPE_HEADING, buildScopeSection(compiledPacket, newline));
+  output = replaceSectionBody(output, REQUIRED_BEHAVIOR_HEADING, compiledPacket.requiredBehavior);
+  output = replaceSectionBody(output, FORBIDDEN_BEHAVIOR_HEADING, FORBIDDEN_BEHAVIOR_CHECKLIST.join(newline));
+  output = replaceSectionBody(output, VALIDATION_PROOF_HEADING, buildValidationProofSection(proofEntries, newline));
+  output = replaceSectionBody(output, BLOCKING_CONDITIONS_HEADING, BLOCKING_CONDITIONS_CHECKLIST.join(newline));
+  return output;
+}
+
+function ensurePlaceholder(body, placeholder) {
+  if (!body.includes(placeholder)) {
+    throw new Error(`Error: missing placeholder ${placeholder}.`);
+  }
+}
+
+function replaceSectionBody(body, heading, replacement) {
+  const pattern = new RegExp(`(${escapeRegExp(heading)}\\r?\\n\\r?\\n)([\\s\\S]*?)(\\r?\\n\\r?\\n---)`);
+  const match = body.match(pattern);
+
+  if (!match) {
+    throw new Error(`Error: missing section ${heading}.`);
+  }
+
+  return body.replace(pattern, (_, prefix, _existingBody, suffix) => `${prefix}${replacement}${suffix}`);
+}
+
+function buildScopeSection(compiledPacket, newline) {
+  return [
+    "**Files changed (exact list):**",
+    "",
+    "<!-- SENTINEL:FILES_BEGIN -->",
+    ...compiledPacket.allowedFiles.map((file) => `- ${file}`),
+    "<!-- SENTINEL:FILES_END -->",
+    "",
+    "**Files explicitly not touched:**",
+    "",
+    ...compiledPacket.forbiddenFiles.map((file) => `- ${file}`),
+  ].join(newline);
+}
+
+function buildValidationProofSection(proofEntries, newline) {
   const typecheckProof = proofEntries.find((entry) => entry.index === 1);
   const testProof = proofEntries.find((entry) => entry.index === 2);
 
@@ -262,28 +363,23 @@ function assemblePrBody(prBodyDraft, proofEntries) {
     throw new Error("Error: failed to parse Command 2 proof block from SECTION 2  PROOF CAPTURE.");
   }
 
-  const newline = detectNewline(prBodyDraft);
   const extraProofBlocks = proofEntries
     .filter((entry) => entry.index >= 3)
-    .map((entry) => `**${entry.command}**:${newline}${newline}${entry.fence}`)
+    .map((entry) => [`**${entry.command}**:`, "", entry.exitLine, entry.fence].join(newline))
     .join(`${newline}${newline}`);
-  const testReplacement = extraProofBlocks.length > 0 ? `${testProof.fence}${newline}${newline}${extraProofBlocks}` : testProof.fence;
 
-  let output = replaceProofBlock(prBodyDraft, TYPECHECK_HEADING, TYPECHECK_PLACEHOLDER, typecheckProof.fence);
-  output = replaceProofBlock(output, TEST_HEADING, TEST_PLACEHOLDER, testReplacement);
-  return output;
-}
-
-function replaceProofBlock(body, heading, placeholder, replacement) {
-  const pattern = new RegExp(
-    "(" + escapeRegExp(heading) + "\\r?\\n\\r?\\n)```\\r?\\n" + escapeRegExp(placeholder) + "\\r?\\n```"
-  );
-
-  if (!pattern.test(body)) {
-    throw new Error(`Error: missing placeholder ${placeholder}.`);
-  }
-
-  return body.replace(pattern, (_, prefix) => `${prefix}${replacement}`);
+  return [
+    TYPECHECK_HEADING,
+    "",
+    typecheckProof.exitLine,
+    typecheckProof.fence,
+    "",
+    TEST_HEADING,
+    "",
+    testProof.exitLine,
+    testProof.fence,
+    ...(extraProofBlocks.length > 0 ? ["", extraProofBlocks] : []),
+  ].join(newline);
 }
 
 function buildPrTitle(taskId, taskName) {
