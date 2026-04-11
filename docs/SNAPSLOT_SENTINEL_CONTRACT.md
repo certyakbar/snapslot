@@ -355,7 +355,15 @@ This keeps the PR readable for the Governor while reducing wording-sensitive fai
 `ops/GOVERNOR_APPROVAL.json` is the Governor approval manifest (see §12). It is
 committed to the PR branch by the `governor-manifest-commit` job (or manually during
 bootstrap) and is excluded from both C3 (declared scope vs actual diff) and the Group D
-scope binding check. It must NOT be listed in the PR body's FILES section.
+scope binding check.
+
+For B3 (allowed files declaration), `ops/GOVERNOR_APPROVAL.json` may be listed in the
+PR body FILES section. When it is listed there, the Sentinel must not count it as a
+scope-drift violation or a phantom-scope violation in C3. The C3 exclusion and the
+Group D scope-binding exclusion are unchanged.
+
+When `ops/GOVERNOR_APPROVAL.json` is the only file changed in a PR (manifest-only PR),
+it must be listed in the FILES section so that B3 is satisfied.
 
 ### 10.5 Why HTML comments are used
 
