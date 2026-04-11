@@ -2,14 +2,15 @@
   "schema_version": "1",
   "verdict": "APPROVE",
   "governor_login": "certyakbar",
-  "pr_number": 28,
-  "approved_parent_sha": "bd599160231bcb534e6b24daed601c7c4f44df5d",
-  "approved_tree_sha": "77011d2ca0f8c60d4b7b0e9277e4e82265e6b52d",
+  "pr_number": 40,
+  "approved_parent_sha": "070eaf54090af2f2949232ba40fc927f739d4f29",
+  "approved_tree_sha": "b98427bcac43ba1fdd4668edd5ae1ee7bacca29e",
   "risk_tier": "HIGH",
-  "task_id": "T-GOV-0.1-schema-phase-rule-na-exception",
+  "task_id": "T-NA-1-schema-and-validator",
   "declared_files": [
-    "docs/SNAPSLOT_TASK_PACKET_SCHEMA.md"
+    "schemas/task-packet.schema.json",
+    "scripts/validate-task-packet.js"
   ],
   "ledger_state": "NONE",
-  "issued_at": "2026-04-09T17:21:57.572Z"
+  "issued_at": "2026-04-11T04:05:55.447Z"
 }
