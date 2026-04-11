@@ -2,14 +2,14 @@
   "schema_version": "1",
   "verdict": "APPROVE",
   "governor_login": "certyakbar",
-  "pr_number": 41,
-  "approved_parent_sha": "d615b7938850aed054de07f64ef09c5e1b37d0ad",
-  "approved_tree_sha": "2d38fba81d736542d4aee3984be8f5a969ce3755",
+  "pr_number": 43,
+  "approved_parent_sha": "1ebf78e369b39d27c8e60041757152cf9d16f4c6",
+  "approved_tree_sha": "4756501f3886776955d0585b1230d24aabfd763a",
   "risk_tier": "HIGH",
-  "task_id": "T-GOV-8-sentinel-b3-manifest-exemption",
+  "task_id": "T-GOV-7-post-merge-manifest-reset",
   "declared_files": [
-    "docs/SNAPSLOT_SENTINEL_CONTRACT.md"
+    ".github/workflows/post-merge-manifest-reset.yml"
   ],
   "ledger_state": "NONE",
-  "issued_at": "2026-04-11T17:18:08.752Z"
+  "issued_at": "2026-04-11T20:29:13.829Z"
 }
