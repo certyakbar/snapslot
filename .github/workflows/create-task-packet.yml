@@ -1,0 +1,355 @@
+name: Create Task Packet
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      payload:
+        description: Full task packet JSON payload
+        required: true
+        type: string
+
+permissions:
+  issues: write
+
+concurrency:
+  group: create-task-packet-${{ github.workflow }}-${{ github.actor }}
+  cancel-in-progress: true
+
+jobs:
+  create-task-packet:
+    name: Create task packet issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.comment.user.login == 'certyakbar' &&
+        !github.event.issue.pull_request
+      )
+    steps:
+      - name: Parse payload, validate schema, and create issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const FIELD_ORDER = [
+              "task_id",
+              "task_name",
+              "phase",
+              "workflow",
+              "risk_level",
+              "actor_surface",
+              "allowed_files",
+              "forbidden_files",
+              "required_behavior",
+              "forbidden_behavior",
+              "validation_commands",
+              "stop_rule",
+              "return_format",
+              "known_contradictions",
+              "docs_may_change",
+              "ledger_update_required",
+              "notes",
+            ];
+
+            const ACTOR_SURFACE_ORDER = [
+              "PLATFORM_OWNER",
+              "BUSINESS_ADMIN",
+              "CUSTOMER",
+              "INTERNAL",
+            ];
+
+            const REQUIRED_STRING_FIELDS = [
+              "task_id",
+              "task_name",
+              "phase",
+              "workflow",
+              "required_behavior",
+              "forbidden_behavior",
+              "stop_rule",
+              "return_format",
+            ];
+
+            const OPTIONAL_STRING_FIELDS = [
+              "known_contradictions",
+              "docs_may_change",
+              "ledger_update_required",
+              "notes",
+            ];
+
+            const VALID_RISK_LEVELS = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
+            const VALID_ACTOR_SURFACES = new Set(ACTOR_SURFACE_ORDER);
+            const VALID_PHASES = new Set(["Phase N/A", ...Array.from({ length: 13 }, (_, index) => `Phase ${index}`)]);
+            const TASK_ID_PATTERN = /^T-\S+$/;
+            const WORKFLOW_PATTERN = /^Workflow [A-L](?:\b| .*)/;
+
+            function normalizeNewlines(value) {
+              return String(value ?? "").replace(/\r\n/g, "\n");
+            }
+
+            function trimString(value) {
+              return typeof value === "string" ? normalizeNewlines(value).trim() : "";
+            }
+
+            function isNonEmptyString(value) {
+              return typeof value === "string" && trimString(value) !== "";
+            }
+
+            function normalizeStringArray(value) {
+              if (!Array.isArray(value)) {
+                return [];
+              }
+
+              return value
+                .map((entry) => (typeof entry === "string" ? normalizeNewlines(entry).trim() : ""))
+                .filter((entry) => entry !== "");
+            }
+
+            function arrayHasOnlyNonEmptyStrings(value) {
+              return Array.isArray(value) && value.every((entry) => typeof entry === "string" && trimString(entry) !== "");
+            }
+
+            function renderSection(label, value) {
+              return `### ${label}\n\n${value}`;
+            }
+
+            function renderBulletList(values) {
+              return values.map((value) => `- ${value}`).join("\n");
+            }
+
+            function renderNumberedList(values) {
+              return values.map((value, index) => `${index + 1}. ${value}`).join("\n");
+            }
+
+            function renderActorSurface(values) {
+              const selected = new Set(values);
+              return ACTOR_SURFACE_ORDER
+                .filter((value) => selected.has(value))
+                .map((value) => `- [x] ${value}`)
+                .join("\n");
+            }
+
+            function renderIssueBody(packet) {
+              const sections = [];
+
+              for (const field of FIELD_ORDER) {
+                if (field === "actor_surface") {
+                  sections.push(renderSection(field, renderActorSurface(packet.actor_surface)));
+                  continue;
+                }
+
+                if (field === "allowed_files" || field === "forbidden_files") {
+                  sections.push(renderSection(field, renderBulletList(packet[field])));
+                  continue;
+                }
+
+                if (field === "validation_commands") {
+                  sections.push(renderSection(field, renderNumberedList(packet.validation_commands)));
+                  continue;
+                }
+
+                sections.push(renderSection(field, packet[field]));
+              }
+
+              return sections.join("\n\n");
+            }
+
+            function collectValidationFailures(payload) {
+              const failures = [];
+
+              if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+                failures.push("payload: must be a JSON object");
+                return failures;
+              }
+
+              for (const field of REQUIRED_STRING_FIELDS) {
+                if (!isNonEmptyString(payload[field])) {
+                  failures.push(`${field}: missing or empty`);
+                }
+              }
+
+              for (const field of OPTIONAL_STRING_FIELDS) {
+                if (payload[field] !== undefined && payload[field] !== null && typeof payload[field] !== "string") {
+                  failures.push(`${field}: must be a string when provided`);
+                }
+              }
+
+              if (payload.risk_level === undefined || payload.risk_level === null || trimString(payload.risk_level) === "") {
+                failures.push("risk_level: missing or empty");
+              } else if (typeof payload.risk_level !== "string") {
+                failures.push("risk_level: must be a string");
+              } else if (!VALID_RISK_LEVELS.has(trimString(payload.risk_level))) {
+                failures.push("risk_level: must be one of CRITICAL | HIGH | MEDIUM | LOW");
+              }
+
+              if (payload.phase !== undefined && payload.phase !== null && typeof payload.phase === "string") {
+                const phase = trimString(payload.phase);
+                if (phase !== "" && !VALID_PHASES.has(phase)) {
+                  failures.push("phase: must be Phase 0 through Phase 12, or Phase N/A");
+                }
+              }
+
+              if (payload.workflow !== undefined && payload.workflow !== null && typeof payload.workflow === "string") {
+                const phase = trimString(payload.phase);
+                const workflow = trimString(payload.workflow);
+
+                if (workflow !== "") {
+                  if (phase === "Phase N/A") {
+                    if (workflow !== "N/A") {
+                      failures.push("workflow: must be N/A when phase is Phase N/A");
+                    }
+                  } else if (!WORKFLOW_PATTERN.test(workflow)) {
+                    failures.push("workflow: must start with Workflow A-L when phase is numbered");
+                  }
+                }
+              }
+
+              const actorSurface = normalizeStringArray(payload.actor_surface);
+              if (!Array.isArray(payload.actor_surface)) {
+                failures.push("actor_surface: must be an array");
+              } else if (!arrayHasOnlyNonEmptyStrings(payload.actor_surface)) {
+                failures.push("actor_surface: every entry must be a non-empty string");
+              } else if (actorSurface.length === 0) {
+                failures.push("actor_surface: must include at least one non-empty string entry");
+              } else {
+                const invalidActorSurface = actorSurface.filter((value) => !VALID_ACTOR_SURFACES.has(value));
+                if (invalidActorSurface.length > 0) {
+                  failures.push(`actor_surface: contains invalid value(s): ${invalidActorSurface.join(", ")}`);
+                }
+              }
+
+              for (const field of ["allowed_files", "forbidden_files", "validation_commands"]) {
+                const values = normalizeStringArray(payload[field]);
+                if (!Array.isArray(payload[field])) {
+                  failures.push(`${field}: must be an array`);
+                } else if (!arrayHasOnlyNonEmptyStrings(payload[field])) {
+                  failures.push(`${field}: every entry must be a non-empty string`);
+                } else if (values.length === 0) {
+                  failures.push(`${field}: must include at least one non-empty string entry`);
+                }
+              }
+
+              const taskId = trimString(payload.task_id);
+              if (taskId !== "" && !TASK_ID_PATTERN.test(taskId)) {
+                failures.push("task_id: must match /^T-\\S+$/");
+              }
+
+              return failures;
+            }
+
+            function normalizePacket(payload) {
+              return {
+                task_id: trimString(payload.task_id),
+                task_name: trimString(payload.task_name),
+                phase: trimString(payload.phase),
+                workflow: trimString(payload.workflow),
+                risk_level: trimString(payload.risk_level),
+                actor_surface: normalizeStringArray(payload.actor_surface),
+                allowed_files: normalizeStringArray(payload.allowed_files),
+                forbidden_files: normalizeStringArray(payload.forbidden_files),
+                required_behavior: trimString(payload.required_behavior),
+                forbidden_behavior: trimString(payload.forbidden_behavior),
+                validation_commands: normalizeStringArray(payload.validation_commands),
+                stop_rule: trimString(payload.stop_rule),
+                return_format: trimString(payload.return_format),
+                known_contradictions: trimString(payload.known_contradictions) || "None relevant",
+                docs_may_change: trimString(payload.docs_may_change) || "false",
+                ledger_update_required: trimString(payload.ledger_update_required) || "false",
+                notes: trimString(payload.notes) || "None",
+              };
+            }
+
+            async function commentOnOriginIssue(body) {
+              if (context.eventName !== "issue_comment") {
+                return;
+              }
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body,
+              });
+            }
+
+            async function failClosed(message, details = []) {
+              const detailBlock = details.length > 0 ? `\n${details.map((detail) => `- ${detail}`).join("\n")}` : "";
+              const fullMessage = `${message}${detailBlock}`;
+
+              if (context.eventName === "issue_comment") {
+                await commentOnOriginIssue(fullMessage);
+              }
+
+              core.setFailed(fullMessage);
+            }
+
+            function getIssueCommentPayload() {
+              const commentBody = normalizeNewlines(context.payload.comment?.body ?? "");
+              const lines = commentBody.split("\n");
+              const firstLine = (lines[0] ?? "").trim();
+
+              if (firstLine !== "/newtask") {
+                core.info("Ignoring comment because the first line is not exactly /newtask after trimming.");
+                return null;
+              }
+
+              return lines.slice(1).join("\n").trim();
+            }
+
+            const rawPayload = context.eventName === "workflow_dispatch"
+              ? trimString(context.payload.inputs?.payload)
+              : getIssueCommentPayload();
+
+            if (rawPayload === null) {
+              return;
+            }
+
+            if (rawPayload === "") {
+              await failClosed("Task packet JSON is malformed: payload is empty.");
+              return;
+            }
+
+            let parsedPayload;
+            try {
+              parsedPayload = JSON.parse(rawPayload);
+            } catch (error) {
+              await failClosed(`Task packet JSON is malformed: ${error instanceof Error ? error.message : String(error)}`);
+              return;
+            }
+
+            const failures = collectValidationFailures(parsedPayload);
+            if (failures.length > 0) {
+              await failClosed("Task packet validation failed:", failures);
+              return;
+            }
+
+            const packet = normalizePacket(parsedPayload);
+            const issueBody = renderIssueBody(packet);
+
+            let createdIssue;
+            try {
+              createdIssue = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `TASK PACKET: ${packet.task_name}`,
+                labels: ["task-packet"],
+                body: issueBody,
+              });
+            } catch (error) {
+              await failClosed(`Task packet issue creation failed: ${error instanceof Error ? error.message : String(error)}`);
+              return;
+            }
+
+            const issueUrl = createdIssue.data.html_url;
+            const issueNumber = createdIssue.data.number;
+
+            if (context.eventName === "issue_comment") {
+              await commentOnOriginIssue(`Created task packet issue: ${issueUrl} (#${issueNumber})`);
+              return;
+            }
+
+            await core.summary
+              .addRaw(`Created task packet issue: ${issueUrl} (#${issueNumber})`)
+              .write();
