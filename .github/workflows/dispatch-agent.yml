@@ -1,0 +1,151 @@
+name: Dispatch Agent
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: dispatch-agent-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch-agent:
+    name: Dispatch agent
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'issue_comment' &&
+      github.event.comment.user.login == 'certyakbar' &&
+      !github.event.issue.pull_request
+    steps:
+      - name: Guard /dispatch command
+        id: command_guard
+        uses: actions/github-script@v7
+        with:
+          script: |
+            function normalizeNewlines(value) {
+              return String(value ?? "")
+                .replace(/\r\n/g, "\n")
+                .replace(/\r/g, "\n");
+            }
+
+            const lines = normalizeNewlines(context.payload.comment?.body ?? "").split("\n");
+            const firstLine = (lines[0] ?? "").trim();
+
+            if (firstLine !== "/dispatch") {
+              core.info("Skipping: comment is not a /dispatch command.");
+              core.setOutput("should_dispatch", "false");
+              return;
+            }
+
+            core.setOutput("should_dispatch", "true");
+
+      - name: Check out repository
+        if: steps.command_guard.outputs.should_dispatch == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        if: steps.command_guard.outputs.should_dispatch == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate target issue
+        id: validate_issue
+        if: steps.command_guard.outputs.should_dispatch == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            async function reject(message) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: message,
+              });
+              core.setFailed(message);
+            }
+
+            const response = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+            });
+
+            const issue = response.data;
+            const issueNumber = issue.number;
+
+            if (issue.pull_request) {
+              await reject("Dispatch rejected: /dispatch may only be used on plain issues, not pull requests.");
+              return;
+            }
+
+            const issueState = typeof issue.state === "string" ? issue.state : "";
+            if (issueState.toLowerCase() !== "open") {
+              await reject(`Dispatch rejected: issue #${issueNumber} is not open (state: ${issueState}). Only open issues may be dispatched.`);
+              return;
+            }
+
+            if (!String(issue.title ?? "").startsWith("TASK PACKET:")) {
+              await reject(`Dispatch rejected: issue #${issueNumber} title does not start with 'TASK PACKET:'. Only task packet issues may be dispatched.`);
+              return;
+            }
+
+            const labels = Array.isArray(issue.labels)
+              ? issue.labels.map((label) => (typeof label === "string" ? label : label?.name)).filter(Boolean)
+              : [];
+
+            if (!labels.includes("task-packet")) {
+              await reject(`Dispatch rejected: issue #${issueNumber} does not carry the 'task-packet' label. Only labeled task packet issues may be dispatched.`);
+            }
+
+      - name: Run dispatch-agent.js
+        id: dispatch
+        if: steps.command_guard.outputs.should_dispatch == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          stdout_file="$(mktemp)"
+          stderr_file="$(mktemp)"
+
+          set +e
+          node scripts/dispatch-agent.js ${{ github.event.issue.number }} >"$stdout_file" 2>"$stderr_file"
+          exit_code=$?
+          set -e
+
+          {
+            echo 'stdout<<EOF'
+            cat "$stdout_file"
+            echo 'EOF'
+            echo 'stderr<<EOF'
+            cat "$stderr_file"
+            echo 'EOF'
+            echo "exit_code=$exit_code"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$exit_code" -ne 0 ]; then
+            exit "$exit_code"
+          fi
+
+      - name: Comment dispatch result
+        if: always() && steps.dispatch.outcome != 'skipped'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const outcome = ${{ toJSON(steps.dispatch.outcome) }} || "";
+            const stdout = ${{ toJSON(steps.dispatch.outputs.stdout) }} || "";
+            const stderr = ${{ toJSON(steps.dispatch.outputs.stderr) }} || "";
+            const body = outcome === "success"
+              ? stdout
+              : `Dispatch failed:\n\n${stderr}`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body,
+            });
