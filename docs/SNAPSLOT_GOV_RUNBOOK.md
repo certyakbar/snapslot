@@ -22,7 +22,7 @@ On failure, `failClosed()` posts an error comment back to the origin issue on th
 
 On success, the workflow normalizes the packet with `normalizePacket()`, renders the issue body with `renderIssueBody()`, creates a new issue titled `TASK PACKET: {task_name}`, applies the `task-packet` label, and comments back to the origin issue with the created issue URL and number.
 
-UNPROVEN: live `/newtask` issue-comment execution success. GitHub Actions history shows two `Create Task Packet` runs on `main` triggered by `issue_comment` on 2026-04-16 (`2026-04-16T14:33:30Z` and `2026-04-16T19:58:59Z`), and both concluded `skipped`. No successful live `/newtask` comment run has been witnessed.
+PROVEN: live `/newtask` issue-comment execution success. GitHub Actions `Create Task Packet` run `24730966853` on `main` was triggered by `issue_comment` on 2026-04-21 at `2026-04-21T15:25:12Z` and completed with conclusion `success` (updated `2026-04-21T15:25:23Z`). Display title: "T-GOV-13 proof: /newtask intake trigger". The `/newtask` issue-comment intake path is witnessed working.
 
 ## 3. Intake path: workflow_dispatch
 
@@ -134,7 +134,6 @@ Any issue created through this form is structurally compatible with the `/dispat
 
 ## 9. Known UNPROVEN / BLOCKED items
 
-- UNPROVEN: live `/newtask` issue-comment execution success. Two `Create Task Packet` `issue_comment` runs on `main` were skipped on 2026-04-16, and no successful live `/newtask` run has been witnessed.
 - UNPROVEN: live `/dispatch` -> `compile-task` -> Copilot assignment success. One `Dispatch Agent` `issue_comment` run on `main` was skipped on 2026-04-16, and no successful live dispatch cycle has been witnessed.
 - UNPROVEN: `copilot-swe-agent` actual availability on this repository.
 - UNPROVEN: GitHub Actions runner environment at the time of a live dispatch execution.
