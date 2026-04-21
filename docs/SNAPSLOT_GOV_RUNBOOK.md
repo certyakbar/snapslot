@@ -50,9 +50,28 @@ If the command matches, `validate_issue` refetches the issue and enforces the re
 
 `scripts/compile-task.js` validates the task packet and emits six sections in order: SECTION 1 `EXECUTOR PROMPT`, SECTION 2 `FALLBACK PACKET`, SECTION 3 `PR BODY DRAFT`, SECTION 4 `PROOF SKELETON`, SECTION 5 `CLEANUP CHECKLIST`, and SECTION 6 `POST-MERGE CLOSURE CHECKLIST`.
 
-UNPROVEN: live `/dispatch` execution success. GitHub Actions history shows one `Dispatch Agent` run on `main` triggered by `issue_comment` on 2026-04-16 at `2026-04-16T19:58:59Z`, and it concluded `skipped`. No successful live `/dispatch` -> `compile-task` -> Copilot assignment cycle has been witnessed.
+PARTIAL LIVE EVIDENCE: GitHub Actions `Dispatch Agent` run `24730998040` on `main` was triggered by `issue_comment` on 2026-04-21 at `2026-04-21T15:25:48Z` and concluded `failure`. The witnessed evidence from that run:
 
-UNPROVEN: `copilot-swe-agent` actual availability on this repository. Static code proves the preflight check exists, but actual availability is only knowable at runtime.
+- `command_guard` step: passed - comment body first line was `/dispatch`, `should_dispatch=true` set
+- `validate_issue` step: passed - issue #53 was state `open`, title `TASK PACKET: Governor intake lane live proof`, label `task-packet`
+- `Run dispatch-agent.js` step: invoked with `node scripts/dispatch-agent.js 53`
+- `compile-task.js` exited 0 for issue #53 (script continued past compile step to preflight)
+- `task_id` parse: succeeded (script continued past this step)
+- GraphQL preflight (`gh api graphql`): executed and returned valid JSON
+- Preflight determination: `copilot-swe-agent` was NOT present in `suggestedActors` - exact stderr: `"Error: copilot-swe-agent is not available as a suggested actor on this repository. Ensure GitHub Copilot coding agent is enabled."`
+- `dispatch-agent.js` exit code: 1
+- `Comment dispatch result` step: ran (always-condition), posted failure message to issue #53
+- Steps NOT reached: `gh issue view` (issue state check), `gh api POST /assignees` (Copilot assignment POST)
+
+UNPROVEN: live `/dispatch` execution success. Run `24730998040` proves the command guard, task-packet issue validation, `dispatch-agent.js` invocation, `compile-task.js` success, `task_id` parse, and GraphQL preflight execution. The remaining unproven steps are the post-preflight `gh issue view` state check and `gh api POST /assignees` Copilot assignment.
+
+BLOCKED: `copilot-swe-agent` actual availability on this repository. T-GOV-14 Copilot availability check output:
+
+```json
+{"data":{"repository":{"suggestedActors":{"nodes":[{"login":"certyakbar"}]}}}}
+```
+
+Because `copilot-swe-agent` is absent from `suggestedActors`, the live dispatch proof cannot proceed to the final issue-state check or Copilot assignment POST.
 
 UNPROVEN: GitHub Actions runner environment at dispatch execution time. The workflow declares `runs-on: ubuntu-latest`, but the exact live runner environment at the moment of a future dispatch cannot be proven from static repo files.
 
@@ -134,8 +153,8 @@ Any issue created through this form is structurally compatible with the `/dispat
 
 ## 9. Known UNPROVEN / BLOCKED items
 
-- UNPROVEN: live `/dispatch` -> `compile-task` -> Copilot assignment success. One `Dispatch Agent` `issue_comment` run on `main` was skipped on 2026-04-16, and no successful live dispatch cycle has been witnessed.
-- UNPROVEN: `copilot-swe-agent` actual availability on this repository.
+- UNPROVEN: live `/dispatch` -> `compile-task` -> Copilot assignment success. Run `24730998040` on 2026-04-21 reached and passed command guard, task-packet issue validation, `dispatch-agent.js` invocation, `compile-task.js`, `task_id` parse, and GraphQL preflight execution. It stopped before `gh issue view` and `gh api POST /assignees` because `copilot-swe-agent` was absent from `suggestedActors`.
+- BLOCKED: `copilot-swe-agent` actual availability on this repository. T-GOV-14 GraphQL output was `{"data":{"repository":{"suggestedActors":{"nodes":[{"login":"certyakbar"}]}}}}`.
 - UNPROVEN: GitHub Actions runner environment at the time of a live dispatch execution.
 - UNPROVEN: current existence and validity of `GOVERNOR_APP_ID` and `GOVERNOR_APP_PRIVATE_KEY` repository secrets.
 - UNPROVEN: live `main` branch protection or ruleset settings, including require-PR, require-status-checks, and dismiss-stale-approvals style controls.
