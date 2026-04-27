@@ -45,7 +45,7 @@ type RunningServer = {
 };
 
 function buildUrl(port: number, pathname: string): string {
-  return `http://127.0.0.1:${port}${pathname}`;
+  return `http://localhost:${port}${pathname}`;
 }
 
 function parseJson<T>(text: string): T {
@@ -587,6 +587,281 @@ const tests: TestCase[] = [
     },
   },
   {
+    name: "completeBooking transitions confirmed booking to completed",
+    run: async () => {
+      const store = await BookingStore.create();
+
+      await store.createBusiness({
+        id: "biz_complete_confirmed",
+        name: "Complete Confirmed",
+        ownerName: "Owner",
+        ownerEmail: "complete-confirmed@example.com",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        timezone: "UTC",
+        bookingPageSlug: "complete-confirmed",
+      });
+
+      const service = await store.createService({
+        businessId: "biz_complete_confirmed",
+        name: "The Service",
+        durationMinutes: 30,
+        price: 25,
+      });
+
+      await store.updateWeeklyAvailability({
+        businessId: "biz_complete_confirmed",
+        availability: [
+          { dayOfWeek: TUESDAY, startMinutes: 9 * 60, endMinutes: 12 * 60, active: true },
+        ],
+      });
+
+      const booking = await store.createBooking({
+        businessId: "biz_complete_confirmed",
+        requestedStart: new Date("2099-04-07T09:00:00.000Z"),
+        serviceIds: [service.id],
+        customer: {
+          name: "Test Customer",
+          phone: "07000000000",
+          email: "customer@example.com",
+        },
+      });
+
+      assert.equal(booking.status, "confirmed");
+
+      const completed = await store.completeBooking("biz_complete_confirmed", booking.id);
+      assert.equal(completed.id, booking.id);
+      assert.equal(completed.status, "completed");
+
+      const bookings = store.listBookings("biz_complete_confirmed");
+      const found = bookings.find((item) => item.id === booking.id);
+      assert.ok(found, "Completed booking must appear in listing");
+      assert.equal(found.status, "completed");
+    },
+  },
+  {
+    name: "completeBooking transitions rescheduled booking to completed",
+    run: async () => {
+      const store = await BookingStore.create();
+
+      await store.createBusiness({
+        id: "biz_complete_rescheduled",
+        name: "Complete Rescheduled",
+        ownerName: "Owner",
+        ownerEmail: "complete-rescheduled@example.com",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        timezone: "UTC",
+        bookingPageSlug: "complete-rescheduled",
+      });
+
+      const service = await store.createService({
+        businessId: "biz_complete_rescheduled",
+        name: "The Service",
+        durationMinutes: 60,
+        price: 50,
+      });
+
+      await store.updateWeeklyAvailability({
+        businessId: "biz_complete_rescheduled",
+        availability: [
+          { dayOfWeek: TUESDAY, startMinutes: 9 * 60, endMinutes: 17 * 60, active: true },
+        ],
+      });
+
+      const booking = await store.createBooking({
+        businessId: "biz_complete_rescheduled",
+        requestedStart: new Date("2099-04-07T09:00:00.000Z"),
+        serviceIds: [service.id],
+        customer: {
+          name: "Test Customer",
+          phone: "07000000000",
+          email: "customer@example.com",
+        },
+      });
+
+      const rescheduled = await store.rescheduleBooking(
+        "biz_complete_rescheduled",
+        booking.id,
+        new Date("2099-04-07T11:00:00.000Z")
+      );
+      assert.equal(rescheduled.status, "rescheduled");
+
+      const completed = await store.completeBooking("biz_complete_rescheduled", booking.id);
+      assert.equal(completed.id, booking.id);
+      assert.equal(completed.status, "completed");
+
+      const bookings = store.listBookings("biz_complete_rescheduled");
+      const found = bookings.find((item) => item.id === booking.id);
+      assert.ok(found, "Completed booking must appear in listing");
+      assert.equal(found.status, "completed");
+    },
+  },
+  {
+    name: "completeBooking rejects pending_payment booking with 400",
+    run: async () => {
+      const store = await BookingStore.create();
+
+      await store.createBusiness({
+        id: "biz_complete_pending",
+        name: "Complete Pending",
+        ownerName: "Owner",
+        ownerEmail: "complete-pending@example.com",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        timezone: "UTC",
+        bookingPageSlug: "complete-pending",
+        depositEnabled: true,
+        depositType: "fixed",
+        depositAmount: 10,
+      });
+
+      const service = await store.createService({
+        businessId: "biz_complete_pending",
+        name: "Deposit Service",
+        durationMinutes: 30,
+        price: 25,
+      });
+
+      await store.updateWeeklyAvailability({
+        businessId: "biz_complete_pending",
+        availability: [
+          { dayOfWeek: TUESDAY, startMinutes: 9 * 60, endMinutes: 12 * 60, active: true },
+        ],
+      });
+
+      const booking = await store.createBooking({
+        businessId: "biz_complete_pending",
+        requestedStart: new Date("2099-04-07T09:00:00.000Z"),
+        serviceIds: [service.id],
+        customer: {
+          name: "Test Customer",
+          phone: "07000000000",
+          email: "customer@example.com",
+        },
+      });
+
+      assert.equal(booking.status, "pending_payment");
+
+      await assert.rejects(
+        () => store.completeBooking("biz_complete_pending", booking.id),
+        (error: any) => {
+          assert.equal(error.status, 400);
+          assert.equal(error.message, "Only confirmed or rescheduled bookings can be completed.");
+          return true;
+        }
+      );
+    },
+  },
+  {
+    name: "completeBooking rejects cancelled booking with 400",
+    run: async () => {
+      const store = await BookingStore.create();
+
+      await store.createBusiness({
+        id: "biz_complete_cancelled",
+        name: "Complete Cancelled",
+        ownerName: "Owner",
+        ownerEmail: "complete-cancelled@example.com",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        timezone: "UTC",
+        bookingPageSlug: "complete-cancelled",
+      });
+
+      const service = await store.createService({
+        businessId: "biz_complete_cancelled",
+        name: "The Service",
+        durationMinutes: 30,
+        price: 25,
+      });
+
+      await store.updateWeeklyAvailability({
+        businessId: "biz_complete_cancelled",
+        availability: [
+          { dayOfWeek: TUESDAY, startMinutes: 9 * 60, endMinutes: 12 * 60, active: true },
+        ],
+      });
+
+      const booking = await store.createBooking({
+        businessId: "biz_complete_cancelled",
+        requestedStart: new Date("2099-04-07T09:00:00.000Z"),
+        serviceIds: [service.id],
+        customer: {
+          name: "Test Customer",
+          phone: "07000000000",
+          email: "customer@example.com",
+        },
+      });
+
+      const cancelled = await store.cancelBooking("biz_complete_cancelled", booking.id);
+      assert.equal(cancelled.status, "cancelled");
+
+      await assert.rejects(
+        () => store.completeBooking("biz_complete_cancelled", booking.id),
+        (error: any) => {
+          assert.equal(error.status, 400);
+          assert.equal(error.message, "Only confirmed or rescheduled bookings can be completed.");
+          return true;
+        }
+      );
+    },
+  },
+  {
+    name: "completeBooking rejects already-completed booking with 400",
+    run: async () => {
+      const store = await BookingStore.create();
+
+      await store.createBusiness({
+        id: "biz_complete_terminal",
+        name: "Complete Terminal",
+        ownerName: "Owner",
+        ownerEmail: "complete-terminal@example.com",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        timezone: "UTC",
+        bookingPageSlug: "complete-terminal",
+      });
+
+      const service = await store.createService({
+        businessId: "biz_complete_terminal",
+        name: "The Service",
+        durationMinutes: 30,
+        price: 25,
+      });
+
+      await store.updateWeeklyAvailability({
+        businessId: "biz_complete_terminal",
+        availability: [
+          { dayOfWeek: TUESDAY, startMinutes: 9 * 60, endMinutes: 12 * 60, active: true },
+        ],
+      });
+
+      const booking = await store.createBooking({
+        businessId: "biz_complete_terminal",
+        requestedStart: new Date("2099-04-07T09:00:00.000Z"),
+        serviceIds: [service.id],
+        customer: {
+          name: "Test Customer",
+          phone: "07000000000",
+          email: "customer@example.com",
+        },
+      });
+
+      const completed = await store.completeBooking("biz_complete_terminal", booking.id);
+      assert.equal(completed.status, "completed");
+
+      await assert.rejects(
+        () => store.completeBooking("biz_complete_terminal", booking.id),
+        (error: any) => {
+          assert.equal(error.status, 400);
+          assert.equal(error.message, "Only confirmed or rescheduled bookings can be completed.");
+          return true;
+        }
+      );
+    },
+  },
+  {
     name: "public booking page route serves slug page and cancel API marks booking cancelled in response and listing",
     run: async () => {
       const running = await startServerForTest();
@@ -694,6 +969,111 @@ const tests: TestCase[] = [
         const listedBooking = bookings.body.find((item) => item.id === booking.body.id);
         assert.ok(listedBooking, "Cancelled booking must remain visible in booking list");
         assert.equal(listedBooking.status, "cancelled");
+      } finally {
+        await running.stop();
+      }
+    },
+  },
+  {
+    name: "PATCH /complete marks confirmed booking completed via route",
+    run: async () => {
+      const running = await startServerForTest();
+
+      try {
+        const session: CookieSession = { cookie: "" };
+        const slug = `complete-route-${Math.random().toString(36).slice(2, 10)}`;
+        const email = `${slug}@example.com`;
+
+        const signup = await requestJson<{ businessId: string }>(
+          running.port,
+          "/api/signup",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              businessName: "Complete Route Proof",
+              ownerName: "Owner",
+              email,
+              password: "auditpass123",
+              timezone: "UTC",
+              bookingSlug: slug,
+            }),
+          },
+          session
+        );
+        assert.equal(signup.status, 201);
+
+        const service = await requestJson<{ id: string }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/services`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              name: "Complete Service",
+              durationMinutes: 30,
+              price: 25,
+              bufferMinutes: 0,
+            }),
+          },
+          session
+        );
+        assert.equal(service.status, 201);
+
+        const availability = await requestJson<Array<{ dayOfWeek: number }>>(
+          running.port,
+          `/api/business/${signup.body.businessId}/availability`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              availability: [
+                { dayOfWeek: TUESDAY, startMinutes: 9 * 60, endMinutes: 12 * 60, active: true },
+              ],
+            }),
+          },
+          session
+        );
+        assert.equal(availability.status, 200);
+
+        const booking = await requestJson<{ id: string; status: string }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/bookings`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              requestedStart: "2099-04-07T09:00:00.000Z",
+              serviceIds: [service.body.id],
+              customer: {
+                name: "Route Customer",
+                phone: "07000000000",
+                email: "route-customer@example.com",
+              },
+            }),
+          },
+          session
+        );
+        assert.equal(booking.status, 201);
+        assert.equal(booking.body.status, "confirmed");
+
+        const completed = await requestJson<{ id: string; status: string }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/bookings/${booking.body.id}/complete`,
+          { method: "PATCH" },
+          session
+        );
+        assert.equal(completed.status, 200);
+        assert.equal(completed.body.id, booking.body.id);
+        assert.equal(completed.body.status, "completed");
+
+        const bookings = await requestJson<Array<{ id: string; status: string }>>(
+          running.port,
+          `/api/business/${signup.body.businessId}/bookings`,
+          { method: "GET" },
+          session
+        );
+        assert.equal(bookings.status, 200);
+
+        const listedBooking = bookings.body.find((item) => item.id === booking.body.id);
+        assert.ok(listedBooking, "Completed booking must remain visible in booking list");
+        assert.equal(listedBooking.status, "completed");
       } finally {
         await running.stop();
       }
@@ -828,6 +1208,114 @@ const tests: TestCase[] = [
           session
         );
         assert.equal(cancelledReschedule.status, 400);
+      } finally {
+        await running.stop();
+      }
+    },
+  },
+  {
+    name: "PATCH /complete returns 400 for pending_payment booking",
+    run: async () => {
+      const running = await startServerForTest();
+
+      try {
+        const session: CookieSession = { cookie: "" };
+        const slug = `complete-pending-${Math.random().toString(36).slice(2, 10)}`;
+        const email = `${slug}@example.com`;
+
+        const signup = await requestJson<{ businessId: string }>(
+          running.port,
+          "/api/signup",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              businessName: "Complete Pending Route",
+              ownerName: "Owner",
+              email,
+              password: "auditpass123",
+              timezone: "UTC",
+              bookingSlug: slug,
+            }),
+          },
+          session
+        );
+        assert.equal(signup.status, 201);
+
+        const paymentConfig = await requestJson<{ depositEnabled: boolean }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/payment-config`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              depositEnabled: true,
+              depositType: "fixed",
+              depositAmount: 10,
+              paymentLabel: "Deposit",
+            }),
+          },
+          session
+        );
+        assert.equal(paymentConfig.status, 200);
+        assert.equal(paymentConfig.body.depositEnabled, true);
+
+        const service = await requestJson<{ id: string }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/services`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              name: "Complete Pending Service",
+              durationMinutes: 30,
+              price: 25,
+              bufferMinutes: 0,
+            }),
+          },
+          session
+        );
+        assert.equal(service.status, 201);
+
+        const availability = await requestJson<Array<{ dayOfWeek: number }>>(
+          running.port,
+          `/api/business/${signup.body.businessId}/availability`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              availability: [
+                { dayOfWeek: TUESDAY, startMinutes: 9 * 60, endMinutes: 12 * 60, active: true },
+              ],
+            }),
+          },
+          session
+        );
+        assert.equal(availability.status, 200);
+
+        const booking = await requestJson<{ id: string; status: string }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/bookings`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              requestedStart: "2099-04-07T09:00:00.000Z",
+              serviceIds: [service.body.id],
+              customer: {
+                name: "Pending Customer",
+                phone: "07000000000",
+                email: "pending-customer@example.com",
+              },
+            }),
+          },
+          session
+        );
+        assert.equal(booking.status, 201);
+        assert.equal(booking.body.status, "pending_payment");
+
+        const completed = await requestJson<{ error: string }>(
+          running.port,
+          `/api/business/${signup.body.businessId}/bookings/${booking.body.id}/complete`,
+          { method: "PATCH" },
+          session
+        );
+        assert.equal(completed.status, 400);
       } finally {
         await running.stop();
       }

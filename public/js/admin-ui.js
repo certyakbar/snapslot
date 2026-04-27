@@ -10,6 +10,7 @@ import {
   deleteBlockedTime as deleteBlockedTimeRequest,
   getBookings,
   cancelBooking as cancelBookingRequest,
+  completeBooking as completeBookingRequest,
   logoutBusiness,
 } from "/js/api.js";
 import {
@@ -228,19 +229,29 @@ async function loadBookings() {
       </td>
       <td><span class="pill">${escapeHtml(booking.status)}</span></td>
       <td>
-        ${
-          booking.status === "confirmed"
-            ? `<button class="secondary small" data-booking-id="${booking.id}" type="button">Cancel</button>`
-            : "Not available"
-        }
+        ${booking.status === "confirmed"
+          ? `<button class="secondary small cancel-action" data-booking-id="${booking.id}" type="button">Cancel</button>`
+          : ""}
+        ${(booking.status === "confirmed" || booking.status === "rescheduled")
+          ? `<button class="secondary small complete-action" data-booking-id="${booking.id}" type="button">Complete</button>`
+          : ""}
+        ${(booking.status !== "confirmed" && booking.status !== "rescheduled")
+          ? "Not available"
+          : ""}
       </td>
     `;
     body.appendChild(row);
   });
 
-  body.querySelectorAll("button[data-booking-id]").forEach((button) => {
+  body.querySelectorAll(".cancel-action[data-booking-id]").forEach((button) => {
     button.addEventListener("click", async () => {
       await cancelBooking(button.dataset.bookingId, button);
+    });
+  });
+
+  body.querySelectorAll(".complete-action[data-booking-id]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await completeBooking(button.dataset.bookingId, button);
     });
   });
 }
@@ -722,6 +733,31 @@ async function cancelBooking(bookingId, button) {
     }
     showMessage("booking-message", UI_COPY.admin.bookingCancelledRefreshError, "error");
   }
+}
+
+async function completeBooking(bookingId, button) {
+  clearMessage("booking-message");
+  const originalLabel = button?.textContent ?? "Complete";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Completing...";
+  }
+  try {
+    await completeBookingRequest(businessId, bookingId);
+  } catch (error) {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel;
+    }
+    showMessage(
+      "booking-message",
+      error.message || "Failed to complete booking.",
+      "error"
+    );
+    return;
+  }
+  showMessage("booking-message", "Booking marked as completed.", "success");
+  loadBookings();
 }
 
 async function signOut() {

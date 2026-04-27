@@ -28,7 +28,7 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, "..");
 
 function buildUrl(port: number, pathname: string): string {
-  return `http://127.0.0.1:${port}${pathname}`;
+  return `http://localhost:${port}${pathname}`;
 }
 
 function parseJson<T>(text: string): T {
@@ -234,6 +234,13 @@ const tests: TestCase[] = [
           { method: "GET" }
         );
         assert.equal(unauthBusinessApi.status, 401);
+
+        const unauthBookingComplete = await requestJson<{ error: string }>(
+          running.port,
+          `/api/business/${signupA.body.businessId}/bookings/bkg_does_not_exist/complete`,
+          { method: "PATCH" }
+        );
+        assert.equal(unauthBookingComplete.status, 401);
 
         const unauthAdmin = await fetch(buildUrl(running.port, `/admin/${signupA.body.businessId}`), {
           redirect: "manual",
@@ -607,6 +614,14 @@ const tests: TestCase[] = [
           sessionA
         );
         assert.equal(crossBusinessBookingCancel.status, 403);
+
+        const crossBusinessBookingComplete = await requestJson<{ error: string }>(
+          running.port,
+          `/api/business/${signupB.body.businessId}/bookings/${bookingB.body.id}/complete`,
+          { method: "PATCH" },
+          sessionA
+        );
+        assert.equal(crossBusinessBookingComplete.status, 403);
 
         const publicBusinessA = await requestJson<{ id: string; bookingPageSlug: string }>(
           running.port,

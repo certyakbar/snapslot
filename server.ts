@@ -877,6 +877,24 @@ async function startServer(): Promise<void> {
   );
 
   app.patch(
+    "/api/business/:businessId/bookings/:bookingId/complete",
+    async (req: Request<BookingParams>, res: Response) => {
+      try {
+        assertBusinessSession(req, res, req.params.businessId);
+        const business = store.getBusiness(req.params.businessId);
+        if (!assertBusinessActive(business, res)) return;
+        const booking = await store.completeBooking(
+          req.params.businessId,
+          req.params.bookingId
+        );
+        res.json(booking);
+      } catch (error) {
+        handleError(res, error);
+      }
+    }
+  );
+
+  app.patch(
     "/api/business/:businessId/bookings/:bookingId/payment",
     async (req: Request<BookingParams>, res: Response) => {
       try {
