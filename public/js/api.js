@@ -87,6 +87,12 @@ export function cancelBooking(businessId, bookingId) {
   });
 }
 
+export function completeBooking(businessId, bookingId) {
+  return requestJson(`/api/business/${businessId}/bookings/${bookingId}/complete`, {
+    method: "PATCH",
+  });
+}
+
 export function logoutBusiness() {
   return requestJson("/api/logout", {
     method: "POST",

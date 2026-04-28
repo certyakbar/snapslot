@@ -839,6 +839,31 @@ export class BookingStore {
     });
   }
 
+  async completeBooking(businessId: string, bookingId: string): Promise<BookingDetails> {
+    return this.withBusinessBookingCreationLock(businessId, async () => {
+      this.getBusiness(businessId);
+
+      const nextState = this.cloneState();
+      const bookings = nextState.bookings.get(businessId) ?? [];
+      const booking = bookings.find((item) => item.id === bookingId);
+      if (!booking) {
+        throw new HttpError(400, `Booking '${bookingId}' was not found.`);
+      }
+
+      if (booking.status !== "confirmed" && booking.status !== "rescheduled") {
+        throw new HttpError(400, "Only confirmed or rescheduled bookings can be completed.");
+      }
+
+      booking.status = "completed";
+      booking.updatedAt = new Date();
+
+      await this.persistState(nextState);
+
+      const services = nextState.services.get(businessId) ?? [];
+      return this.attachServiceSnapshots(booking, services);
+    });
+  }
+
   async rescheduleBooking(
     businessId: string,
     bookingId: string,
