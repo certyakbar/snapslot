@@ -3,8 +3,8 @@
   "verdict": "APPROVE",
   "governor_login": "certyakbar",
   "pr_number": 57,
-  "approved_parent_sha": "65167ecdfca0a92a593cbc0ff8724c0d5f209e7c",
-  "approved_tree_sha": "2743af45e10c188abf191c1ad9791cd7b084edc6",
+  "approved_parent_sha": "62787c94629f42835cf4c2e5401de34c23bac666",
+  "approved_tree_sha": "fad6e1a5c82618ecb7985325f8720244527a62f2",
   "risk_tier": "CRITICAL",
   "task_id": "T-04-F1",
   "declared_files": [
@@ -17,5 +17,5 @@
     "docs/SNAPSLOT_ACCEPTANCE_LEDGER.md"
   ],
   "ledger_state": "AFFECTED",
-  "issued_at": "2026-04-28T16:11:25.526Z"
+  "issued_at": "2026-04-28T16:25:16.443Z"
 }
