@@ -587,6 +587,216 @@ const tests: TestCase[] = [
     },
   },
   {
+    name: "cancelBooking rejects a booking that is already cancelled",
+    run: async () => {
+      const store = await BookingStore.create();
+
+      await store.createBusiness({
+        id: "biz_cancel_already_cancelled",
+        name: "Cancel Already Cancelled",
+        ownerName: "Owner",
+        ownerEmail: "cancel-already-cancelled@example.com",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        timezone: "UTC",
+        bookingPageSlug: "cancel-already-cancelled",
+      });
+
+      const service = await store.createService({
+        businessId: "biz_cancel_already_cancelled",
+        name: "The Service",
+        durationMinutes: 30,
+        price: 25,
+      });
+
+      await store.updateWeeklyAvailability({
+        businessId: "biz_cancel_already_cancelled",
+        availability: [
+          { dayOfWeek: TUESDAY, startMinutes: 9 * 60, endMinutes: 12 * 60, active: true },
+        ],
+      });
+
+      const booking = await store.createBooking({
+        businessId: "biz_cancel_already_cancelled",
+        requestedStart: new Date("2099-04-07T09:00:00.000Z"),
+        serviceIds: [service.id],
+        customer: {
+          name: "Test Customer",
+          phone: "07000000000",
+          email: "customer@example.com",
+        },
+      });
+
+      const cancelled = await store.cancelBooking("biz_cancel_already_cancelled", booking.id);
+      assert.equal(cancelled.status, "cancelled");
+
+      await assert.rejects(
+        () => store.cancelBooking("biz_cancel_already_cancelled", booking.id),
+        (error: any) => {
+          assert.equal(error.status, 400);
+          assert.match(error.message, /already cancelled or completed/i);
+          return true;
+        }
+      );
+    },
+  },
+  {
+    name: "cancelBooking rejects a completed booking",
+    run: async () => {
+      const store = await BookingStore.create();
+
+      await store.createBusiness({
+        id: "biz_cancel_completed",
+        name: "Cancel Completed",
+        ownerName: "Owner",
+        ownerEmail: "cancel-completed@example.com",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        timezone: "UTC",
+        bookingPageSlug: "cancel-completed",
+      });
+
+      const service = await store.createService({
+        businessId: "biz_cancel_completed",
+        name: "The Service",
+        durationMinutes: 30,
+        price: 25,
+      });
+
+      await store.updateWeeklyAvailability({
+        businessId: "biz_cancel_completed",
+        availability: [
+          { dayOfWeek: TUESDAY, startMinutes: 9 * 60, endMinutes: 12 * 60, active: true },
+        ],
+      });
+
+      const booking = await store.createBooking({
+        businessId: "biz_cancel_completed",
+        requestedStart: new Date("2099-04-07T09:00:00.000Z"),
+        serviceIds: [service.id],
+        customer: {
+          name: "Test Customer",
+          phone: "07000000000",
+          email: "customer@example.com",
+        },
+      });
+
+      const completed = await store.completeBooking("biz_cancel_completed", booking.id);
+      assert.equal(completed.status, "completed");
+
+      await assert.rejects(
+        () => store.cancelBooking("biz_cancel_completed", booking.id),
+        (error: any) => {
+          assert.equal(error.status, 400);
+          assert.match(error.message, /already cancelled or completed/i);
+          return true;
+        }
+      );
+    },
+  },
+  {
+    name: "cancelBooking accepts pending_payment booking",
+    run: async () => {
+      const store = await BookingStore.create();
+
+      await store.createBusiness({
+        id: "biz_cancel_pending_payment",
+        name: "Cancel Pending Payment",
+        ownerName: "Owner",
+        ownerEmail: "cancel-pending-payment@example.com",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        timezone: "UTC",
+        bookingPageSlug: "cancel-pending-payment",
+        depositEnabled: true,
+        depositType: "fixed",
+        depositAmount: 10,
+      });
+
+      const service = await store.createService({
+        businessId: "biz_cancel_pending_payment",
+        name: "Deposit Service",
+        durationMinutes: 30,
+        price: 25,
+      });
+
+      await store.updateWeeklyAvailability({
+        businessId: "biz_cancel_pending_payment",
+        availability: [
+          { dayOfWeek: TUESDAY, startMinutes: 9 * 60, endMinutes: 12 * 60, active: true },
+        ],
+      });
+
+      const booking = await store.createBooking({
+        businessId: "biz_cancel_pending_payment",
+        requestedStart: new Date("2099-04-07T09:00:00.000Z"),
+        serviceIds: [service.id],
+        customer: {
+          name: "Test Customer",
+          phone: "07000000000",
+          email: "customer@example.com",
+        },
+      });
+
+      assert.equal(booking.status, "pending_payment");
+
+      const cancelled = await store.cancelBooking("biz_cancel_pending_payment", booking.id);
+      assert.equal(cancelled.status, "cancelled");
+    },
+  },
+  {
+    name: "cancelBooking accepts rescheduled booking",
+    run: async () => {
+      const store = await BookingStore.create();
+
+      await store.createBusiness({
+        id: "biz_cancel_rescheduled",
+        name: "Cancel Rescheduled",
+        ownerName: "Owner",
+        ownerEmail: "cancel-rescheduled@example.com",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        timezone: "UTC",
+        bookingPageSlug: "cancel-rescheduled",
+      });
+
+      const service = await store.createService({
+        businessId: "biz_cancel_rescheduled",
+        name: "The Service",
+        durationMinutes: 60,
+        price: 50,
+      });
+
+      await store.updateWeeklyAvailability({
+        businessId: "biz_cancel_rescheduled",
+        availability: [
+          { dayOfWeek: TUESDAY, startMinutes: 9 * 60, endMinutes: 17 * 60, active: true },
+        ],
+      });
+
+      const booking = await store.createBooking({
+        businessId: "biz_cancel_rescheduled",
+        requestedStart: new Date("2099-04-07T09:00:00.000Z"),
+        serviceIds: [service.id],
+        customer: {
+          name: "Test Customer",
+          phone: "07000000000",
+          email: "customer@example.com",
+        },
+      });
+
+      const rescheduled = await store.rescheduleBooking(
+        "biz_cancel_rescheduled",
+        booking.id,
+        new Date("2099-04-07T11:00:00.000Z")
+      );
+      assert.equal(rescheduled.status, "rescheduled");
+
+      const cancelled = await store.cancelBooking("biz_cancel_rescheduled", booking.id);
+      assert.equal(cancelled.status, "cancelled");
+    },
+  },
+  {
     name: "completeBooking transitions confirmed booking to completed",
     run: async () => {
       const store = await BookingStore.create();

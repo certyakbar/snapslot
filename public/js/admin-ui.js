@@ -11,6 +11,7 @@ import {
   getBookings,
   cancelBooking as cancelBookingRequest,
   completeBooking as completeBookingRequest,
+  rescheduleBooking as rescheduleBookingRequest,
   logoutBusiness,
 } from "/js/api.js";
 import {
@@ -209,6 +210,10 @@ async function loadBookings() {
       : (booking.serviceIds || []).join(", ");
     const customerEmail = booking.customer.email ? escapeHtml(booking.customer.email) : "No email provided";
     const customerNotes = booking.customer.notes ? escapeHtml(booking.customer.notes) : "No notes";
+    const canCancelOrReschedule =
+      booking.status === "pending_payment" || booking.status === "confirmed" || booking.status === "rescheduled";
+    const canComplete = booking.status === "confirmed" || booking.status === "rescheduled";
+    const hasNoBookingActions = booking.status === "cancelled" || booking.status === "completed";
 
     row.innerHTML = `
       <td><strong>${escapeHtml(booking.customer.name)}</strong></td>
@@ -229,14 +234,25 @@ async function loadBookings() {
       </td>
       <td><span class="pill">${escapeHtml(booking.status)}</span></td>
       <td>
-        ${booking.status === "confirmed"
+        ${canCancelOrReschedule
           ? `<button class="secondary small cancel-action" data-booking-id="${booking.id}" type="button">Cancel</button>`
           : ""}
-        ${(booking.status === "confirmed" || booking.status === "rescheduled")
+        ${canCancelOrReschedule
+          ? `<button class="secondary small reschedule-action" data-booking-id="${booking.id}" type="button">Reschedule</button>`
+          : ""}
+        ${canComplete
           ? `<button class="secondary small complete-action" data-booking-id="${booking.id}" type="button">Complete</button>`
           : ""}
-        ${(booking.status !== "confirmed" && booking.status !== "rescheduled")
-          ? "Not available"
+        ${hasNoBookingActions ? "Not available" : ""}
+        ${canCancelOrReschedule
+          ? `<form class="reschedule-form" data-booking-id="${booking.id}" hidden style="margin-top: 8px;">
+              <label>
+                New start time
+                <input class="reschedule-start" name="requestedStart" type="datetime-local" required />
+              </label>
+              <button class="secondary small" type="submit">Confirm</button>
+              <button class="ghost small reschedule-close" data-booking-id="${booking.id}" type="button">Close</button>
+            </form>`
           : ""}
       </td>
     `;
@@ -246,6 +262,25 @@ async function loadBookings() {
   body.querySelectorAll(".cancel-action[data-booking-id]").forEach((button) => {
     button.addEventListener("click", async () => {
       await cancelBooking(button.dataset.bookingId, button);
+    });
+  });
+
+  body.querySelectorAll(".reschedule-action[data-booking-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      showRescheduleForm(button.dataset.bookingId);
+    });
+  });
+
+  body.querySelectorAll(".reschedule-close[data-booking-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      hideRescheduleForm(button.dataset.bookingId);
+    });
+  });
+
+  body.querySelectorAll(".reschedule-form[data-booking-id]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await submitRescheduleForm(form);
     });
   });
 
@@ -758,6 +793,65 @@ async function completeBooking(bookingId, button) {
   }
   showMessage("booking-message", "Booking marked as completed.", "success");
   loadBookings();
+}
+
+function showRescheduleForm(bookingId) {
+  clearMessage("booking-message");
+  document.querySelectorAll(".reschedule-form[data-booking-id]").forEach((form) => {
+    form.hidden = form.dataset.bookingId !== bookingId;
+  });
+}
+
+function hideRescheduleForm(bookingId) {
+  const form = document.querySelector(`.reschedule-form[data-booking-id="${bookingId}"]`);
+  if (form) {
+    form.hidden = true;
+  }
+}
+
+async function submitRescheduleForm(form) {
+  clearMessage("booking-message");
+  const bookingId = form.dataset.bookingId;
+  const input = form.querySelector(".reschedule-start");
+  const submitButton = form.querySelector("button[type='submit']");
+  const closeButton = form.querySelector(".reschedule-close");
+  const originalLabel = submitButton?.textContent ?? "Confirm";
+
+  if (!bookingId || !input?.value) {
+    showMessage("booking-message", "Choose a new start time before rescheduling.", "error");
+    return;
+  }
+
+  const requestedStart = new Date(input.value);
+  if (Number.isNaN(requestedStart.getTime())) {
+    showMessage("booking-message", "Choose a valid new start time.", "error");
+    return;
+  }
+
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Rescheduling...";
+  }
+  if (closeButton) {
+    closeButton.disabled = true;
+  }
+
+  try {
+    await rescheduleBookingRequest(businessId, bookingId, requestedStart.toISOString());
+    form.hidden = true;
+    await loadBookings();
+    showMessage("booking-message", "Booking rescheduled.", "success");
+  } catch (error) {
+    showMessage("booking-message", error.message || "Failed to reschedule booking.", "error");
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalLabel;
+    }
+    if (closeButton) {
+      closeButton.disabled = false;
+    }
+  }
 }
 
 async function signOut() {
