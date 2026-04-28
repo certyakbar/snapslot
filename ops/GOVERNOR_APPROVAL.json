@@ -1,13 +1,13 @@
 {
   "schema_version": "1",
-  "verdict": "NONE",
-  "governor_login": null,
-  "pr_number": null,
-  "approved_parent_sha": null,
-  "approved_tree_sha": null,
-  "risk_tier": null,
-  "task_id": null,
+  "verdict": "APPROVE",
+  "governor_login": "certyakbar",
+  "pr_number": 58,
+  "approved_parent_sha": "b0dee2fdd68e774a176d230fa214dbb16e0ce429",
+  "approved_tree_sha": "a2707264beaa20235a18990a0c9075dfb3e256e9",
+  "risk_tier": "UNKNOWN",
+  "task_id": "UNKNOWN",
   "declared_files": [],
-  "ledger_state": null,
-  "issued_at": null
+  "ledger_state": "UNKNOWN",
+  "issued_at": "2026-04-28T17:20:05.810Z"
 }
