@@ -829,6 +829,11 @@ export class BookingStore {
         throw new HttpError(400, `Booking '${bookingId}' was not found.`);
       }
 
+      // cancelBooking terminal guard: reject cancelled/completed before status assignment.
+      if (booking.status === "cancelled" || booking.status === "completed") {
+        throw new HttpError(400, "Cannot cancel a booking that is already cancelled or completed.");
+      }
+
       booking.status = "cancelled";
       booking.updatedAt = new Date();
 

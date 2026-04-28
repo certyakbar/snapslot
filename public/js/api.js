@@ -93,6 +93,14 @@ export function completeBooking(businessId, bookingId) {
   });
 }
 
+export function rescheduleBooking(businessId, bookingId, requestedStart) {
+  return requestJson(`/api/business/${businessId}/bookings/${bookingId}/reschedule`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requestedStart }),
+  });
+}
+
 export function logoutBusiness() {
   return requestJson("/api/logout", {
     method: "POST",

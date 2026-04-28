@@ -1,13 +1,20 @@
 {
   "schema_version": "1",
-  "verdict": "NONE",
-  "governor_login": null,
-  "pr_number": null,
-  "approved_parent_sha": null,
-  "approved_tree_sha": null,
-  "risk_tier": null,
-  "task_id": null,
-  "declared_files": [],
-  "ledger_state": null,
-  "issued_at": null
+  "verdict": "APPROVE",
+  "governor_login": "certyakbar",
+  "pr_number": 58,
+  "approved_parent_sha": "cc9c0af7e70e6458c8889ab13f185a3caf93af07",
+  "approved_tree_sha": "a118b6feceda880b6ae08ac0de60887588b1fb8d",
+  "risk_tier": "CRITICAL",
+  "task_id": "T-04-F2",
+  "declared_files": [
+    "bookingStore.ts",
+    "public/js/api.js",
+    "public/js/admin-ui.js",
+    "tests/coreProof.test.ts",
+    "tests/authIsolation.test.ts",
+    "docs/SNAPSLOT_ACCEPTANCE_LEDGER.md"
+  ],
+  "ledger_state": "AFFECTED",
+  "issued_at": "2026-04-28T18:14:31.509Z"
 }

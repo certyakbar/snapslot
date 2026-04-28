@@ -615,6 +615,19 @@ const tests: TestCase[] = [
         );
         assert.equal(crossBusinessBookingCancel.status, 403);
 
+        const crossBusinessBookingReschedule = await requestJson<{ error: string }>(
+          running.port,
+          `/api/business/${signupB.body.businessId}/bookings/${bookingB.body.id}/reschedule`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              requestedStart: "2099-04-06T12:30:00.000Z",
+            }),
+          },
+          sessionA
+        );
+        assert.equal(crossBusinessBookingReschedule.status, 403);
+
         const crossBusinessBookingComplete = await requestJson<{ error: string }>(
           running.port,
           `/api/business/${signupB.body.businessId}/bookings/${bookingB.body.id}/complete`,
