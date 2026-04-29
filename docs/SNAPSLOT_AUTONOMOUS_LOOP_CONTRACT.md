@@ -27,7 +27,7 @@ The constraints in this section are mandatory and apply before any loop behavior
 
 ### 2.2 Role Separation Constraint
 
-- Claude Governor: plan mode only, invoked with `--permission-mode plan`; produces clearance or `BLOCK` only; does not edit files.
+- Claude Governor: invoked non-interactively with `claude -p`; produces clearance or `BLOCK` only; does not edit files.
 - Codex Builder: executes only after explicit Governor clearance; touches only files listed in the active packet's `ALLOWED FILES`; does not self-approve, self-commit, self-push, or self-merge unless a future packet explicitly authorizes commit mechanics and preserves operator final authority.
 - GitHub Actions / Sentinel: deterministic verification only; does not execute AI.
 - Operator: final authority on task-packet acceptance, Governor verdict, and merge decision. This authority cannot be automated or delegated to the loop.
@@ -108,18 +108,17 @@ The loop is a twelve-stage, ordered, fail-closed sequence. No stage may begin un
   - any workflow step references AI key secrets
   - `apiKeyHelper` found in config
 
-### Stage 3 — Governor Invocation (Plan Mode)
+### Stage 3 — Governor Invocation
 
 - Actor: Claude Governor, invoked via local subscription-authenticated Claude Code CLI.
 - Command shape:
 
 ```text
-claude -p --permission-mode plan "<governor-prompt>"
+claude -p "<governor-prompt>"
 ```
 
 - The `<governor-prompt>` must instruct Claude to act as Governor, re-anchor to repo truth, and produce either an explicit Governor clearance with a complete scoped task packet, or an explicit Governor `BLOCK` with a stated blocking reason.
 - `-p` runs non-interactively and exits after printing.
-- `--permission-mode plan` enforces read-only plan mode at the CLI level, preventing file edits regardless of prompt content.
 - Claude's full output must be captured to a local proof file for inclusion in the PR body.
 - Pass: Governor output contains the explicit clearance signal and a complete scoped task packet.
 - Stop conditions:
@@ -130,14 +129,18 @@ claude -p --permission-mode plan "<governor-prompt>"
 ### Stage 4 — Governor Clearance Gate
 
 - Actor: loop automation (shell)
-- Action: parse Governor output for the explicit clearance signal; do not infer clearance from the absence of `BLOCK`.
+- Action: parse Governor output for the explicit clearance signal; do not infer clearance from the absence of the Governor block verdict phrase.
 - Defined clearance signal:
 
 ```text
 GOVERNOR VERDICT: CLEAR TO SCOPE
 ```
 
-- Pass: the clearance signal is unambiguous.
+- Parsing order and match behavior:
+  - The Governor block verdict phrase is checked first using `grep -qF`, as a substring match anywhere in the file. If found, the runner stops immediately.
+  - `GOVERNOR VERDICT: CLEAR TO SCOPE` is checked second using `grep -qxF`, as an exact standalone full-line match. Leading or trailing whitespace causes a miss.
+  - The runner does not infer clearance from the absence of the Governor block verdict phrase. Both checks are fail-closed.
+- Pass: the clearance signal is present as an exact standalone full line.
 - Stop conditions:
   - output does not contain the defined clearance signal
   - Governor `BLOCK` is present
@@ -149,10 +152,10 @@ GOVERNOR VERDICT: CLEAR TO SCOPE
 - Command shape:
 
 ```text
-codex "<executor-prompt>"
+codex exec --full-auto --sandbox workspace-write "<executor-prompt>"
 ```
 
-- The `<executor-prompt>` is the scoped task packet produced by the Governor in Stage 3, passed verbatim, not summarized or paraphrased.
+- The `<executor-prompt>` is the scoped task packet produced by the Governor in Stage 3, read verbatim from `proof/stage3-governor-output.txt` and passed to Codex, not summarized or paraphrased.
 - Codex may only modify or create files listed in the active packet's `ALLOWED FILES`.
 - Codex must not commit, push, stage, or self-approve in this stage. Those actions require separate explicit authorization in a future packet.
 - Pass: Codex exits `0` and reports files changed or created.
@@ -165,6 +168,7 @@ codex "<executor-prompt>"
 
 - Actor: loop automation (shell)
 - Action: combine tracked changed files from `git diff --name-only HEAD` with untracked new files from `git ls-files --others --exclude-standard`, filter out `node_modules/` paths and `package-lock.json`, deduplicate, and compare the result against the active packet's `ALLOWED FILES` list.
+- Packet list parsing skips markdown horizontal rule separator lines matching `^[[:space:]]*---+[[:space:]]*$`; these lines are silently ignored and do not terminate section parsing or split list entries.
 - The result must be an exact match: no extra files, no missing expected files.
 - A new untracked file that was not staged is a valid changed file for this check.
 - Pass: combined tracked-plus-untracked diff matches `ALLOWED FILES` exactly.
@@ -197,6 +201,7 @@ codex "<executor-prompt>"
 
 - Actor: loop automation (shell)
 - Action: collect and store all proof artifacts from Stages 1 through 8 into a local proof bundle; include exact command outputs, not paraphrases.
+- Current `scripts/loop-runner.sh` implementation stops after Stage 9 and emits `STAGES 1–9 COMPLETE. Proof bundle at proof/. Stage 10–12 require a separate governed packet.` Stages 10–12 are not implemented in that script, and implementation of Stages 10–12 requires a separate governed packet.
 - Pass: proof bundle is non-empty and contains exact outputs for all stages.
 - Stop conditions:
   - proof bundle is empty
@@ -205,7 +210,7 @@ codex "<executor-prompt>"
 
 ### Stage 10 — PR Body / Proof Summary Preparation
 
-- Actor: loop automation (shell); optionally Claude Governor in a read-only summarize invocation with `claude -p --permission-mode plan` if the active packet authorizes it.
+- Actor: loop automation (shell); optionally Claude Governor in a read-only summarize invocation with `claude -p` if the active packet authorizes it.
 - Action: compose a PR body draft from the active packet's PR body template, populated with task ID, task name, risk level, allowed files, exact validation command outputs, Governor clearance reference, and proof bundle location.
 - No claim may appear in the PR body that is not backed by proof from the bundle.
 - Pass: PR body draft is complete, factually accurate, and references real proof.
@@ -227,7 +232,7 @@ codex "<executor-prompt>"
 
 ### Stage 12 — Stop for Operator and Governor Review
 
-- Actor: operator (human) and Governor (Claude, invoked manually by operator with `claude -p --permission-mode plan`).
+- Actor: operator (human) and Governor (Claude, invoked manually by operator with `claude -p`).
 - Action: the loop terminates here. The operator reviews the draft PR, the proof bundle, and the Governor clearance. The Governor issues a final `GOVERNOR VERDICT: APPROVE FOR MERGE` or `GOVERNOR VERDICT: BLOCK`. The operator makes the merge decision.
 - The loop must not automate this stage under any condition.
 - The loop must not poll for merge completion or take any action after Stage 12 without a new Governor-cleared packet authorizing the next cycle.
