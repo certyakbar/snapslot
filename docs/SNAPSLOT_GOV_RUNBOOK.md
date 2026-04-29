@@ -158,3 +158,65 @@ Any issue created through this form is structurally compatible with the `/dispat
 - UNPROVEN: GitHub Actions runner environment at the time of a live dispatch execution.
 - UNPROVEN: current existence and validity of `GOVERNOR_APP_ID` and `GOVERNOR_APP_PRIVATE_KEY` repository secrets.
 - UNPROVEN: live `main` branch protection or ruleset settings, including require-PR, require-status-checks, and dismiss-stale-approvals style controls.
+
+## 10. Local loop runner
+
+The local loop runner (`scripts/loop-runner.sh`) implements T-GOV-15 Stages 1–9 of the SnapSlot Governed Autonomous Loop Contract (`docs/SNAPSLOT_AUTONOMOUS_LOOP_CONTRACT.md`). Stages 10–12 (PR body preparation, draft PR creation, and operator/Governor review stop) are not implemented in this script and require a separate governed packet.
+
+### 10.1 Invocation syntax
+
+```bash
+bash scripts/loop-runner.sh "<governor-prompt>"
+```
+
+The sole argument is the full Governor prompt text passed verbatim to `claude -p --permission-mode plan`. Typically this is the contents of the task packet document the operator wants Governor to review.
+
+### 10.2 Stages implemented (1–9)
+
+- **Stage 1 — Repo Re-Anchor**: fetches `origin/main`; verifies HEAD is on `main` and equals `origin/main`; checks for source working-tree modifications (permits `node_modules/` and `package-lock.json` WSL noise only); verifies `ops/GOVERNOR_APPROVAL.json` has `"verdict": "NONE"`; confirms required governance docs are readable. 
+- **Stage 2 — No-Key Preflight**: stops if any `OPENAI_API_KEY`, `CODEX_API_KEY`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_API_KEY`, or any `OPENAI_*`/`ANTHROPIC_*` billing-path variable is set in the environment; stops if `.env`, `.env.*`, or `.envrc` in repo root defines AI API key variables; stops if `.claude/settings.json` or `.claude/settings.local.json` contains `apiKeyHelper`. Emits `NO-KEY PREFLIGHT: PASS — no observable AI API key execution path detected` on clean pass.
+- **Stage 3 — Governor Invocation**: invokes `claude -p --permission-mode plan "<governor-prompt>"` and captures full output to `proof/stage3-governor-output.txt`. Stops if command fails or output is empty.
+- **Stage 4 — Governor Clearance Gate**: parses `proof/stage3-governor-output.txt` for exact string `GOVERNOR VERDICT: CLEAR TO SCOPE`. Stops if absent. Stops if `GOVERNOR VERDICT: BLOCK` is present. Does not infer clearance from absence of BLOCK.
+- **Stage 5 — Codex Builder Invocation**: reads Governor output from Stage 3 and passes it verbatim to `codex`. Captures output and exit code to `proof/stage5-codex-output.txt`. Stops on non-zero exit.
+- **Stage 6 — Hard Scope Verification**: derives ALLOWED FILES from Governor output; combines `git diff --name-only HEAD` with `git ls-files --others --exclude-standard`; filters out `node_modules/` and `package-lock.json`; sorts and deduplicates; compares against ALLOWED FILES. Stops if actual diff is empty or if any actual file is not in ALLOWED FILES.
+- **Stage 7 — Packet Validation Commands**: extracts VALIDATION COMMANDS from Governor output; runs each in order; captures exact output to `proof/stage7-validation-output.txt`; stops on any non-zero exit.
+- **Stage 8 — Deterministic Repo Checks**: if active packet references typecheck or tests, runs `npx tsc --noEmit` and `npm test` and captures output to `proof/stage8-checks-output.txt`; otherwise logs skip.
+- **Stage 9 — Proof Output Collection**: verifies all expected proof files exist in `proof/`; stops naming the missing file if any is absent; prints completion signal.
+
+### 10.3 Proof bundle location
+
+All proof artifacts are written to `proof/` in the repo root. The `proof/` directory is listed in `.gitignore` and must not be committed.
+
+Expected proof files after a successful run:
+
+- `proof/stage1-git-status.txt`
+- `proof/stage1-head-sha.txt`
+- `proof/stage1-origin-sha.txt`
+- `proof/stage2-nokey.txt`
+- `proof/stage3-governor-output.txt`
+- `proof/stage5-codex-output.txt`
+- `proof/stage6-scope.txt`
+- `proof/stage7-validation-output.txt`
+- `proof/stage8-checks-output.txt`
+
+### 10.4 Fail-closed behavior
+
+The script stops immediately on any failure and does not continue to the next stage. Every stop prints to stderr:
+
+```
+LOOP STOP REPORT — Stage: [N] — Condition: [exact condition] — Evidence: [exact evidence]
+```
+
+No self-recovery is attempted. A stopped loop requires a new Governor-cleared corrective packet to authorize a retry.
+
+### 10.5 Completion signal
+
+On successful completion of Stage 9, the script prints exactly:
+
+```
+STAGES 1–9 COMPLETE. Proof bundle at proof/. Stage 10–12 require a separate governed packet.
+```
+
+### 10.6 Deferred stages
+
+Stages 10–12 (PR body preparation, draft PR creation, and operator/Governor final review) are not implemented. They require a separate governed packet.
