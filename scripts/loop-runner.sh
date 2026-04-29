@@ -30,6 +30,9 @@ parse_packet_list() {
       blank_seen = 0
       next
     }
+    in_section && /^[[:space:]]*---+[[:space:]]*$/ {
+      next
+    }
     in_section && /^[[:space:]]*-/ {
       line = $0
       sub(/^[[:space:]]*-[[:space:]]*/, "", line)
