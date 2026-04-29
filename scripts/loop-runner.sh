@@ -133,7 +133,7 @@ printf 'NO-KEY PREFLIGHT: PASS — no observable AI API key execution path detec
 
 # Stage 3 — Governor Invocation
 GOV_OUTPUT_FILE="${PROOF_DIR}/stage3-governor-output.txt"
-if ! claude -p --permission-mode plan "${GOVERNOR_PROMPT}" > "${GOV_OUTPUT_FILE}" 2>&1; then
+if ! claude -p "${GOVERNOR_PROMPT}" > "${GOV_OUTPUT_FILE}" 2>&1; then
   loop_stop 3 "Governor invocation failed (non-zero exit)" "see ${GOV_OUTPUT_FILE}"
 fi
 [[ -s "${GOV_OUTPUT_FILE}" ]] || \
