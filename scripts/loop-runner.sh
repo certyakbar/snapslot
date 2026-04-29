@@ -113,6 +113,7 @@ BILLING_VARS="$(env | grep -E '^(OPENAI_|ANTHROPIC_)' | cut -d= -f1 || true)"
 
 shopt -s nullglob
 for env_file in "${REPO_ROOT}"/.env "${REPO_ROOT}"/.env.* "${REPO_ROOT}"/.envrc; do
+  [[ -f "${env_file}" ]] || continue
   if grep -qE '^\s*(OPENAI_[A-Z_]+|ANTHROPIC_[A-Z_]+|CODEX_API_KEY|CLAUDE_API_KEY)\s*=' "${env_file}"; then
     loop_stop 2 "AI API key assignment detected in env file" "${env_file#${REPO_ROOT}/}"
   fi
@@ -143,7 +144,7 @@ if grep -qF 'GOVERNOR VERDICT: BLOCK' "${GOV_OUTPUT_FILE}"; then
   loop_stop 4 "Governor issued BLOCK" \
     "$(grep -F 'GOVERNOR VERDICT: BLOCK' "${GOV_OUTPUT_FILE}" | head -1)"
 fi
-if ! grep -qF 'GOVERNOR VERDICT: CLEAR TO SCOPE' "${GOV_OUTPUT_FILE}"; then
+if ! grep -qxF 'GOVERNOR VERDICT: CLEAR TO SCOPE' "${GOV_OUTPUT_FILE}"; then
   loop_stop 4 "Governor clearance signal absent" \
     "GOVERNOR VERDICT: CLEAR TO SCOPE not found in ${GOV_OUTPUT_FILE}"
 fi
@@ -152,7 +153,7 @@ fi
 CODEX_OUTPUT_FILE="${PROOF_DIR}/stage5-codex-output.txt"
 GOVERNOR_PACKET="$(cat "${GOV_OUTPUT_FILE}")"
 set +e
-codex "${GOVERNOR_PACKET}" > "${CODEX_OUTPUT_FILE}" 2>&1
+codex exec --full-auto --sandbox workspace-write "${GOVERNOR_PACKET}" > "${CODEX_OUTPUT_FILE}" 2>&1
 CODEX_EXIT=$?
 set -e
 if [[ "${CODEX_EXIT}" -ne 0 ]]; then
