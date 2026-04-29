@@ -169,15 +169,15 @@ The local loop runner (`scripts/loop-runner.sh`) implements T-GOV-15 Stages 1–
 bash scripts/loop-runner.sh "<governor-prompt>"
 ```
 
-The sole argument is the full Governor prompt text passed verbatim to `claude -p --permission-mode plan`. Typically this is the contents of the task packet document the operator wants Governor to review.
+The sole argument is the full Governor prompt text passed verbatim to `claude -p`. Typically this is the contents of the task packet document the operator wants Governor to review.
 
 ### 10.2 Stages implemented (1–9)
 
 - **Stage 1 — Repo Re-Anchor**: fetches `origin/main`; verifies HEAD is on `main` and equals `origin/main`; checks for source working-tree modifications (permits `node_modules/` and `package-lock.json` WSL noise only); verifies `ops/GOVERNOR_APPROVAL.json` has `"verdict": "NONE"`; confirms required governance docs are readable. 
 - **Stage 2 — No-Key Preflight**: stops if any `OPENAI_API_KEY`, `CODEX_API_KEY`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_API_KEY`, or any `OPENAI_*`/`ANTHROPIC_*` billing-path variable is set in the environment; stops if `.env`, `.env.*`, or `.envrc` in repo root defines AI API key variables; stops if `.claude/settings.json` or `.claude/settings.local.json` contains `apiKeyHelper`. Emits `NO-KEY PREFLIGHT: PASS — no observable AI API key execution path detected` on clean pass.
-- **Stage 3 — Governor Invocation**: invokes `claude -p --permission-mode plan "<governor-prompt>"` and captures full output to `proof/stage3-governor-output.txt`. Stops if command fails or output is empty.
-- **Stage 4 — Governor Clearance Gate**: parses `proof/stage3-governor-output.txt` for exact string `GOVERNOR VERDICT: CLEAR TO SCOPE`. Stops if absent. Stops if `GOVERNOR VERDICT: BLOCK` is present. Does not infer clearance from absence of BLOCK.
-- **Stage 5 — Codex Builder Invocation**: reads Governor output from Stage 3 and passes it verbatim to `codex`. Captures output and exit code to `proof/stage5-codex-output.txt`. Stops on non-zero exit.
+- **Stage 3 — Governor Invocation**: invokes `claude -p "<governor-prompt>"` and captures full output to `proof/stage3-governor-output.txt`. Stops if command fails or output is empty.
+- **Stage 4 — Governor Clearance Gate**: parses `proof/stage3-governor-output.txt` by checking the Governor block verdict phrase first with `grep -qF`, as a substring match anywhere in the file. It then requires `GOVERNOR VERDICT: CLEAR TO SCOPE` with `grep -qxF`, as an exact standalone full-line match. BLOCK check precedes CLEAR check, and both checks are fail-closed.
+- **Stage 5 — Codex Builder Invocation**: reads Governor output from Stage 3 and passes it verbatim as the governor-packet argument to `codex exec --full-auto --sandbox workspace-write "<governor-packet>"`. Captures output and exit code to `proof/stage5-codex-output.txt`. Stops on non-zero exit.
 - **Stage 6 — Hard Scope Verification**: derives ALLOWED FILES from Governor output; combines `git diff --name-only HEAD` with `git ls-files --others --exclude-standard`; filters out `node_modules/` and `package-lock.json`; sorts and deduplicates; compares against ALLOWED FILES. Stops if actual diff is empty or if any actual file is not in ALLOWED FILES.
 - **Stage 7 — Packet Validation Commands**: extracts VALIDATION COMMANDS from Governor output; runs each in order; captures exact output to `proof/stage7-validation-output.txt`; stops on any non-zero exit.
 - **Stage 8 — Deterministic Repo Checks**: if active packet references typecheck or tests, runs `npx tsc --noEmit` and `npm test` and captures output to `proof/stage8-checks-output.txt`; otherwise logs skip.
@@ -220,3 +220,7 @@ STAGES 1–9 COMPLETE. Proof bundle at proof/. Stage 10–12 require a separate 
 ### 10.6 Deferred stages
 
 Stages 10–12 (PR body preparation, draft PR creation, and operator/Governor final review) are not implemented. They require a separate governed packet.
+
+### 10.7 Packet list parser note
+
+The `parse_packet_list` function skips markdown horizontal rule separator lines matching `^[[:space:]]*---+[[:space:]]*$` within sections. These lines are silently ignored and do not terminate section parsing or split list entries.
