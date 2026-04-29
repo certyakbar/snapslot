@@ -236,4 +236,141 @@ do
     loop_stop 9 "Expected proof file missing" "${proof_file}"
 done
 
-printf 'STAGES 1–9 COMPLETE. Proof bundle at proof/. Stage 10–12 require a separate governed packet.\n'
+# Stage 10 — PR Body / Proof Draft Generation
+stage10_capture() {
+  local label="$1"
+  shift
+  local stderr_file="${PROOF_DIR}/.stage10-${label}.stderr.$$"
+  local output stderr exit_code
+
+  : > "${stderr_file}"
+  set +e
+  output="$("$@" 2>"${stderr_file}")"
+  exit_code=$?
+  set -e
+  stderr="$(<"${stderr_file}")"
+  rm -f "${stderr_file}"
+
+  if [[ "${exit_code}" -ne 0 || -n "${stderr}" ]]; then
+    if [[ -z "${stderr}" ]]; then
+      stderr="exit code ${exit_code}"
+    fi
+    loop_stop 10 "Stage 10 proof command failed: ${label}" "${stderr}"
+  fi
+
+  printf '%s' "${output}"
+}
+
+stage10_trim() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "${value}"
+}
+
+STAGE10_ALLOWED_FILES="$(stage10_capture "allowed-files" parse_packet_list 'ALLOWED FILES' "${GOV_OUTPUT_FILE}")"
+[[ -n "${STAGE10_ALLOWED_FILES}" ]] || \
+  loop_stop 10 "Stage 10 ALLOWED FILES list empty or absent" "${GOV_OUTPUT_FILE}"
+
+STAGE10_TASK_ID=""
+STAGE10_RISK_LEVEL=""
+while IFS= read -r stage10_line; do
+  if [[ "${stage10_line}" == task_id:* ]]; then
+    stage10_value="${stage10_line#task_id:}"
+    STAGE10_TASK_ID="$(stage10_trim "${stage10_value}")"
+  elif [[ "${stage10_line}" == risk_level:* ]]; then
+    stage10_value="${stage10_line#risk_level:}"
+    STAGE10_RISK_LEVEL="$(stage10_trim "${stage10_value}")"
+  fi
+done < "${GOV_OUTPUT_FILE}"
+
+[[ "${STAGE10_TASK_ID}" == "T-GOV-21" ]] || \
+  loop_stop 10 "Stage 10 task_id parse mismatch" "${STAGE10_TASK_ID:-missing}"
+[[ "${STAGE10_RISK_LEVEL}" == "HIGH" ]] || \
+  loop_stop 10 "Stage 10 risk_level parse mismatch" "${STAGE10_RISK_LEVEL:-missing}"
+
+STAGE10_GIT_STATUS="$(stage10_capture "git-status-short" git status --short)"
+STAGE10_DIFF_NAME_ONLY="$(stage10_capture "git-diff-name-only" git diff --name-only)"
+STAGE10_DIFF_SUMMARY="$(stage10_capture "git-diff-summary" git diff --summary)"
+STAGE10_DIFF_RAW="$(stage10_capture "git-diff-raw" git diff --raw)"
+
+while IFS= read -r stage10_changed_file; do
+  [[ -z "${stage10_changed_file}" ]] && continue
+  if ! grep -Fxq "${stage10_changed_file}" <<< "${STAGE10_ALLOWED_FILES}"; then
+    loop_stop 10 "Stage 10 changed file outside ALLOWED FILES" "${stage10_changed_file}"
+  fi
+done <<< "${STAGE10_DIFF_NAME_ONLY}"
+
+STAGE10_LOOP_RUNNER_GREP=""
+if grep -Fxq "scripts/loop-runner.sh" <<< "${STAGE10_DIFF_NAME_ONLY}"; then
+  STAGE10_LOOP_RUNNER_GREP="$(stage10_capture "loop-runner-stage10-grep" grep -n 'Stage 10' scripts/loop-runner.sh)"
+fi
+
+STAGE10_PR_BODY="${PROOF_DIR}/stage10-pr-body.md"
+STAGE10_PROOF_SUMMARY="${PROOF_DIR}/stage10-proof-summary.txt"
+
+{
+  printf '<!-- SENTINEL:task_id=%s -->\n' "${STAGE10_TASK_ID}"
+  printf '<!-- SENTINEL:risk=%s -->\n' "${STAGE10_RISK_LEVEL}"
+  printf '<!-- SENTINEL:ledger=NONE -->\n'
+  printf '<!-- SENTINEL:FILES_BEGIN -->\n'
+  printf '%s\n' "${STAGE10_DIFF_NAME_ONLY}"
+  printf '<!-- SENTINEL:FILES_END -->\n'
+  printf '<!-- SENTINEL:LEDGER_BEGIN -->\n'
+  printf 'None\n'
+  printf '<!-- SENTINEL:LEDGER_END -->\n\n'
+  printf '# T-GOV-21 Stage 10 PR Body Draft\n\n'
+  printf 'Stage 10 generated this local PR body draft and proof summary only. Ledger update remains deferred to T-GOV-25. Stages 11 and 12 remain deferred and are not implemented by this run.\n\n'
+  printf 'This draft does not claim Sentinel PASS, Governor approval for merge, merge approval, PR creation, branch creation, commit, push, or ready-for-review status.\n\n'
+  printf '## Current execution proof\n\n'
+  printf '### git status --short\n\n'
+  printf '```text\n%s\n```\n\n' "${STAGE10_GIT_STATUS}"
+  printf '### git diff --name-only\n\n'
+  printf '```text\n%s\n```\n\n' "${STAGE10_DIFF_NAME_ONLY}"
+  printf '### git diff --summary\n\n'
+  printf '```text\n%s\n```\n\n' "${STAGE10_DIFF_SUMMARY}"
+  printf '### git diff --raw\n\n'
+  printf '```text\n%s\n```\n\n' "${STAGE10_DIFF_RAW}"
+  if [[ -n "${STAGE10_LOOP_RUNNER_GREP}" ]]; then
+    printf '### scripts/loop-runner.sh mode-sensitive Stage 10 proof\n\n'
+    printf '```text\n%s\n```\n\n' "${STAGE10_LOOP_RUNNER_GREP}"
+  fi
+  for stage10_proof_file in \
+    "${PROOF_DIR}/stage6-scope.txt" \
+    "${PROOF_DIR}/stage7-validation-output.txt" \
+    "${PROOF_DIR}/stage8-checks-output.txt"
+  do
+    if [[ -f "${stage10_proof_file}" ]]; then
+      printf '### %s\n\n' "${stage10_proof_file#${REPO_ROOT}/}"
+      printf '```text\n'
+      cat "${stage10_proof_file}"
+      printf '\n```\n\n'
+    fi
+  done
+} > "${STAGE10_PR_BODY}"
+
+{
+  printf 'task_id_parsed: %s\n' "${STAGE10_TASK_ID}"
+  printf 'risk_level_parsed: %s\n' "${STAGE10_RISK_LEVEL}"
+  printf 'ledger_req_parsed: NONE\n'
+  printf 'changed_files:\n'
+  printf '%s\n' "${STAGE10_DIFF_NAME_ONLY}"
+} > "${STAGE10_PROOF_SUMMARY}"
+
+[[ -s "${STAGE10_PR_BODY}" ]] || \
+  loop_stop 10 "proof/stage10-pr-body.md missing or empty" "${STAGE10_PR_BODY}"
+[[ -s "${STAGE10_PROOF_SUMMARY}" ]] || \
+  loop_stop 10 "proof/stage10-proof-summary.txt missing or empty" "${STAGE10_PROOF_SUMMARY}"
+
+STAGE10_LEDGER_BLOCK="$(stage10_capture "ledger-block-check" awk '
+  /SENTINEL:LEDGER_BEGIN/ { in_block = 1; next }
+  /SENTINEL:LEDGER_END/ { in_block = 0; next }
+  in_block { print }
+' "${STAGE10_PR_BODY}")"
+[[ "${STAGE10_LEDGER_BLOCK}" == "None" ]] || \
+  loop_stop 10 "Stage 10 Sentinel ledger block is not exactly None" "${STAGE10_LEDGER_BLOCK}"
+
+grep -qxF 'ledger_req_parsed: NONE' "${STAGE10_PROOF_SUMMARY}" || \
+  loop_stop 10 "proof/stage10-proof-summary.txt missing ledger_req_parsed: NONE" "${STAGE10_PROOF_SUMMARY}"
+
+printf 'STAGES 1–10 COMPLETE. Proof bundle at proof/. Stages 11–12 require a separate governed packet.\n'

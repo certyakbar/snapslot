@@ -201,7 +201,7 @@ codex exec --full-auto --sandbox workspace-write "<executor-prompt>"
 
 - Actor: loop automation (shell)
 - Action: collect and store all proof artifacts from Stages 1 through 8 into a local proof bundle; include exact command outputs, not paraphrases.
-- Current `scripts/loop-runner.sh` implementation stops after Stage 9 and emits `STAGES 1–9 COMPLETE. Proof bundle at proof/. Stage 10–12 require a separate governed packet.` Stages 10–12 are not implemented in that script, and implementation of Stages 10–12 requires a separate governed packet.
+- Current `scripts/loop-runner.sh` implementation proceeds to Stage 10 proof draft generation after Stage 9 proof collection.
 - Pass: proof bundle is non-empty and contains exact outputs for all stages.
 - Stop conditions:
   - proof bundle is empty
@@ -210,7 +210,7 @@ codex exec --full-auto --sandbox workspace-write "<executor-prompt>"
 
 ### Stage 10 — PR Body / Proof Draft Generation
 
-Design status: design only. Stage 10 is not implemented in `scripts/loop-runner.sh`; implementation is deferred to T-GOV-21.
+Implementation status: Stage 10 is implemented by T-GOV-21 in `scripts/loop-runner.sh`.
 
 - Actor: loop automation (shell).
 - Action: generate a draft PR body and proof summary only. Stage 10 must not create a branch, stage files, commit, push, create a PR, request review, approve, mark ready, or merge.
