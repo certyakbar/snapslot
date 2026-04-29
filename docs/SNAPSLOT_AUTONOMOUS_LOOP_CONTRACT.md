@@ -208,34 +208,79 @@ codex exec --full-auto --sandbox workspace-write "<executor-prompt>"
   - any stage output is missing
   - any output was paraphrased or truncated without capturing the raw original
 
-### Stage 10 — PR Body / Proof Summary Preparation
+### Stage 10 — PR Body / Proof Draft Generation
 
-- Actor: loop automation (shell); optionally Claude Governor in a read-only summarize invocation with `claude -p` if the active packet authorizes it.
-- Action: compose a PR body draft from the active packet's PR body template, populated with task ID, task name, risk level, allowed files, exact validation command outputs, Governor clearance reference, and proof bundle location.
-- No claim may appear in the PR body that is not backed by proof from the bundle.
-- Pass: PR body draft is complete, factually accurate, and references real proof.
+Design status: design only. Stage 10 is not implemented in `scripts/loop-runner.sh`; implementation is deferred to T-GOV-21.
+
+- Actor: loop automation (shell).
+- Action: generate a draft PR body and proof summary only. Stage 10 must not create a branch, stage files, commit, push, create a PR, request review, approve, mark ready, or merge.
+- Required proof capture at execution time from the current working tree:
+  - exact `git status --short` output
+  - exact `git diff --name-only` output
+  - exact `git diff --summary` output
+  - exact `git diff --raw` output
+  - exact mode-sensitive proof for `scripts/loop-runner.sh` whenever that file is in packet scope or appears in the working tree diff
+- The proof used for the draft PR body must be captured during the current Stage 10 execution. It must not be reconstructed from session memory, prior terminal scrollback, stale proof files, or any previous loop run state.
+- The draft PR body must be assembled from exact proof captures only.
+- The draft PR body must include:
+  - Sentinel anchors: `SENTINEL:task_id`, `SENTINEL:risk`, `SENTINEL:ledger`, `SENTINEL:FILES_BEGIN`, `SENTINEL:FILES_END`, `SENTINEL:LEDGER_BEGIN`, and `SENTINEL:LEDGER_END`
+  - changed-file scope from current execution proof
+  - the proof bundle with exact terminal output
+  - the Governor clearance reference from Stage 3 as proof of scope clearance only
+- The draft PR body must not claim merge approval, Governor approval, Sentinel pass, or implementation proof that is not present in the current execution proof bundle.
+- Pass: the PR body draft exists, all claims are backed by exact proof captured during this Stage 10 execution, Sentinel anchors are present, changed-file scope matches current proof, and no approval or merge claim is present.
 - Stop conditions:
-  - PR body contains claims not backed by proof
-  - PR body is empty
-  - preparation fails
+  - any required proof command fails or cannot be captured
+  - any proof output is stale, paraphrased, truncated without raw capture, or sourced from a different repo state
+  - `git status --short`, `git diff --name-only`, `git diff --summary`, or `git diff --raw` contradicts the expected repo state or changed-file scope
+  - mode-sensitive proof is missing when `scripts/loop-runner.sh` is relevant
+  - the draft PR body contains any claim not backed by exact current-execution proof
+  - the draft PR body claims merge approval or Governor approval
+  - the draft PR body is empty or missing Sentinel anchors
 
-### Stage 11 — Draft PR Creation
+### Stage 11 — Branch, Commit, Push, and Draft PR Creation
 
-- Actor: loop automation (shell, `gh pr create --draft`).
-- Action: perform only the operator-authorized branch publication mechanics needed to open a draft PR. The PR must be in draft state and must not be marked ready for review until the operator and Governor have reviewed it.
-- The draft PR URL must be reported to the operator.
-- Pass: draft PR is created and URL is reported.
+Design status: design only. Stage 11 is not implemented in `scripts/loop-runner.sh`; implementation is deferred to T-GOV-22.
+
+- Actor: loop automation (shell, including `git` and `gh pr create --draft`).
+- Action: perform only the branch, commit, push, and draft PR creation mechanics needed to publish the already-proven scoped diff.
+- Stage 11 may create a branch only from one of these exact states:
+  - exact clean synced `main`, proven before branch creation, or
+  - exact allowed post-builder diff state, with clean-state proof recorded before branch creation and current diff proof matching the active packet scope
+- Stage 11 must stop if the repo is dirty before branch creation outside the exact allowed post-builder diff state. It must not proceed through ambiguity.
+- Stage 11 may commit only scoped allowed files from the active packet. No unrelated file may be staged. Staging must be explicit and scope-checked before commit.
+- Stage 11 must push the branch to remote.
+- Stage 11 must create a draft PR only, using the proof bundle produced by Stage 10. It must not synthesize new claims during PR creation.
+- Stage 11 must stop and report if `gh pr create --draft` fails. It must not retry blindly or alter scope to make the command pass.
+- Pass: branch is created from a permitted proven state, only allowed files are committed, push succeeds, draft PR is created, and the draft PR URL is captured.
 - Stop conditions:
-  - push fails
-  - PR creation fails
-  - any step in this stage would auto-mark the PR ready for review or trigger auto-merge
+  - clean synced `main` proof is missing when required
+  - allowed post-builder diff proof is missing or contradicts current state
+  - repo state is dirty before branch creation outside the allowed post-builder diff state
+  - any file outside the active packet's `ALLOWED FILES` would be staged or committed
+  - branch creation, commit, push, or draft PR creation fails
+  - `gh pr create --draft` fails
+  - any step would mark the PR ready, approve the PR, merge the PR, edit `ops/GOVERNOR_APPROVAL.json`, bypass Sentinel, or continue after failure
 
-### Stage 12 — Stop for Operator and Governor Review
+### Stage 12 — Operator / Governor Handoff Stop
 
-- Actor: operator (human) and Governor (Claude, invoked manually by operator with `claude -p`).
-- Action: the loop terminates here. The operator reviews the draft PR, the proof bundle, and the Governor clearance. The Governor issues a final `GOVERNOR VERDICT: APPROVE FOR MERGE` or `GOVERNOR VERDICT: BLOCK`. The operator makes the merge decision.
-- The loop must not automate this stage under any condition.
-- The loop must not poll for merge completion or take any action after Stage 12 without a new Governor-cleared packet authorizing the next cycle.
+Design status: design only. Stage 12 is not implemented in `scripts/loop-runner.sh`; implementation is deferred to T-GOV-23.
+
+- Actor: loop automation (shell) for reporting only; operator and Governor for all review and approval decisions after the loop stops.
+- Action: print the draft PR URL, print the proof bundle summary, print exact next manual commands or review requirements, and stop.
+- Required handoff output:
+  - draft PR URL
+  - changed-file scope summary from the Stage 10 proof bundle
+  - exact proof bundle location and exact proof files included
+  - exact next manual Governor review command or review requirement
+  - exact operator review requirement
+- Stage 12 must stop after reporting. It must not continue into monitoring, polling, approval, merge, manifest editing, or retry behavior.
+- Pass: handoff report is printed and the loop exits without further action.
+- Stop conditions:
+  - PR URL is missing
+  - proof bundle summary cannot be printed from current proof
+  - next manual commands or review requirements are missing
+  - any step would mark the PR ready, approve the PR, merge the PR, edit `ops/GOVERNOR_APPROVAL.json`, bypass Sentinel, rerun after failure, or continue after handoff
 
 ## 6. Automation Boundary Table
 
@@ -329,6 +374,29 @@ The proof bundle for every loop cycle must contain:
 
 No paraphrasing is allowed. No truncation is allowed unless the raw original has been captured. If raw capture was not possible for any item, the proof bundle is incomplete and Stage 9 must stop.
 
+### 8.1 Stage 10-12 Proof-Honesty Requirements
+
+Stages 10-12 carry the T-GOV-19 proof-honesty observations forward as contract requirements. These requirements are design only until T-GOV-21, T-GOV-22, and T-GOV-23 implement them.
+
+- No stale proof: every proof item used for PR body generation, branch publication, draft PR creation, or handoff must be captured at execution time from the current working tree.
+- No repo-state mismatch: proof captured from one repo state must not be submitted for an action performed in another repo state.
+- No mode-drift ambiguity: file mode must be explicitly captured and included in proof when relevant, including for `scripts/loop-runner.sh`.
+- Exact terminal output is required over summary claims.
+- Any contradiction between proof and current repo state must stop the loop and surface the blocker. The loop must fail closed.
+- Token/test-efficiency governance remains deferred to T-GOV-26 and must not be bundled into T-GOV-21, T-GOV-22, T-GOV-23, T-GOV-24, or T-GOV-25.
+
+### 8.2 Draft PR Body Requirements
+
+The Stage 10 draft PR body must satisfy these requirements before Stage 11 may use it:
+
+- All claims must be backed by exact proof from current execution.
+- Sentinel anchors must be present and populated from current execution proof.
+- Changed-file scope must be present and must match current execution proof.
+- The proof bundle must include exact terminal output, not summary claims.
+- The body must not claim merge approval.
+- The body must not claim Governor approval.
+- The body must not imply Stages 10-12 are implemented or witnessed before the relevant implementation and witness packets complete.
+
 ## 9. Forbidden Loop Behavior
 
 The loop must never:
@@ -358,11 +426,23 @@ The loop must never:
 23. Allow Codex to commit, push, stage files, or self-approve as Builder work. Commit mechanics require a future packet and must preserve operator final authority.
 24. Retry without a new Governor-cleared corrective packet authorizing the retry.
 25. Claim that Stage 2 preflight certifies the absence of keys outside the shell environment, outside repo-tracked files, and outside the config paths the preflight reads.
+26. Treat Stage 10, Stage 11, or Stage 12 as implemented before T-GOV-21, T-GOV-22, and T-GOV-23 complete with proof.
+27. Bundle token/test-efficiency governance into the Stage 10-12 implementation sequence before T-GOV-26.
+28. Introduce mark-ready automation, auto-approval, auto-merge, direct Governor approval manifest edits, Sentinel bypass, or blind rerun after failure as a permitted capability.
 
 ## 10. Versioning and Change Control
 
 Once accepted, this contract is versioned governance law. Changes after acceptance require a new governed packet and cannot be made by informal edit.
 
 Implementation packets that follow this contract must be scoped separately. Each implementation packet must define its own allowed files, forbidden files, validation commands, proof requirements, and stop conditions.
+
+The Stage 10-12 implementation sequence is fixed unless a later governed packet changes it:
+
+1. T-GOV-21: Implement Stage 10 PR body/proof draft generation only.
+2. T-GOV-22: Implement Stage 11 draft PR creation only.
+3. T-GOV-23: Implement Stage 12 stop/report handoff only.
+4. T-GOV-24: Witness full Stages 1-12 loop execution.
+5. T-GOV-25: Ledger update for proven Stages 1-12.
+6. T-GOV-26: Token/test-efficiency governance remains deferred and separate.
 
 This contract does not implement the loop. It defines the approved design boundary that later implementation packets may cite.

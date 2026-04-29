@@ -224,3 +224,25 @@ Stages 10–12 (PR body preparation, draft PR creation, and operator/Governor fi
 ### 10.7 Packet list parser note
 
 The `parse_packet_list` function skips markdown horizontal rule separator lines matching `^[[:space:]]*---+[[:space:]]*$` within sections. These lines are silently ignored and do not terminate section parsing or split list entries.
+
+### 10.8 Stage 10-12 design contract
+
+T-GOV-20 defines the design contract for Stages 10-12 in `docs/SNAPSLOT_AUTONOMOUS_LOOP_CONTRACT.md`. This is design only; `scripts/loop-runner.sh` still implements Stages 1-9 only.
+
+Stage 10 is limited to PR body/proof draft generation. It must capture proof from the current working tree at execution time, including `git status --short`, `git diff --name-only`, `git diff --summary`, `git diff --raw`, and mode-sensitive proof for `scripts/loop-runner.sh` when relevant. The draft PR body must include Sentinel anchors, changed-file scope, and exact proof output. It must not claim merge approval or Governor approval.
+
+Stage 11 is limited to branch, scoped commit, push, and draft PR creation. It may create a branch only from exact clean synced `main` or from an exact allowed post-builder diff state with proof recorded before branch creation. It must commit only active-packet allowed files, push the branch, and create a draft PR using the Stage 10 proof bundle. If `gh pr create --draft` fails, it stops and reports; it does not retry blindly.
+
+Stage 12 is a handoff stop. It prints the PR URL, proof bundle summary, and exact next manual review commands or requirements, then stops. It does not mark the PR ready, approve the PR, merge the PR, edit `ops/GOVERNOR_APPROVAL.json`, bypass Sentinel, or rerun after failure.
+
+Proof-honesty rules for these stages are strict: no stale proof, no proof from a different repo state than the action being taken, no mode-drift ambiguity, exact terminal output over summaries, and fail-closed behavior on any contradiction between proof and current repo state.
+
+Implementation sequencing remains:
+
+1. T-GOV-21: Implement Stage 10 PR body/proof draft generation only.
+2. T-GOV-22: Implement Stage 11 draft PR creation only.
+3. T-GOV-23: Implement Stage 12 stop/report handoff only.
+4. T-GOV-24: Witness full Stages 1-12 loop execution.
+5. T-GOV-25: Ledger update for proven Stages 1-12.
+
+Token/test-efficiency governance remains deferred to T-GOV-26 and must not be bundled into the Stage 10-12 implementation or witness packets.
