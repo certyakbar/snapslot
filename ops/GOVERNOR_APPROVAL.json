@@ -1,15 +1,13 @@
 {
   "schema_version": "1",
-  "verdict": "APPROVE",
-  "governor_login": "certyakbar",
-  "pr_number": 62,
-  "approved_parent_sha": "b04ea16288cb0e8522179f89796bb8b397b45d9a",
-  "approved_tree_sha": "b3daf760acdf1c478b3c488a1d5b31fe4dee53d1",
-  "risk_tier": "HIGH",
-  "task_id": "T-GOV-16-C2",
-  "declared_files": [
-    "scripts/loop-runner.sh"
-  ],
-  "ledger_state": "NONE",
-  "issued_at": "2026-04-29T18:16:15.869Z"
+  "verdict": "NONE",
+  "governor_login": null,
+  "pr_number": null,
+  "approved_parent_sha": null,
+  "approved_tree_sha": null,
+  "risk_tier": null,
+  "task_id": null,
+  "declared_files": [],
+  "ledger_state": null,
+  "issued_at": null
 }
