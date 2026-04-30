@@ -54,6 +54,13 @@ parse_packet_list() {
   ' "${source_file}"
 }
 
+collect_changed_files() {
+  { git diff --name-only HEAD; git ls-files --others --exclude-standard; } \
+    | grep -v '^node_modules/' \
+    | grep -v '^package-lock\.json$' \
+    | sort -u || true
+}
+
 # Stage 1 — Repo Re-Anchor
 git fetch origin main
 
@@ -180,12 +187,7 @@ ALLOWED_FILES="$(parse_packet_list 'ALLOWED FILES' "${GOV_OUTPUT_FILE}" | sort -
 [[ -n "${ALLOWED_FILES}" ]] || \
   loop_stop 6 "ALLOWED FILES list empty or absent" "${GOV_OUTPUT_FILE}"
 
-CHANGED_FILES="$(
-  { git diff --name-only HEAD; git ls-files --others --exclude-standard; } \
-    | grep -v '^node_modules/' \
-    | grep -v '^package-lock\.json$' \
-    | sort -u || true
-)"
+CHANGED_FILES="$(collect_changed_files)"
 
 {
   printf 'ALLOWED_FILES:\n'
@@ -346,16 +348,17 @@ STAGE10_GIT_STATUS="$(stage10_capture "git-status-short" git status --short)"
 STAGE10_DIFF_NAME_ONLY="$(stage10_capture "git-diff-name-only" git diff --name-only)"
 STAGE10_DIFF_SUMMARY="$(stage10_capture "git-diff-summary" git diff --summary)"
 STAGE10_DIFF_RAW="$(stage10_capture "git-diff-raw" git diff --raw)"
+STAGE10_CHANGED_FILES="$(collect_changed_files)"
 
 while IFS= read -r stage10_changed_file; do
   [[ -z "${stage10_changed_file}" ]] && continue
   if ! grep -Fxq "${stage10_changed_file}" <<< "${STAGE10_ALLOWED_FILES}"; then
     loop_stop 10 "Stage 10 changed file outside ALLOWED FILES" "${stage10_changed_file}"
   fi
-done <<< "${STAGE10_DIFF_NAME_ONLY}"
+done <<< "${STAGE10_CHANGED_FILES}"
 
 STAGE10_LOOP_RUNNER_GREP=""
-if grep -Fxq "scripts/loop-runner.sh" <<< "${STAGE10_DIFF_NAME_ONLY}"; then
+if grep -Fxq "scripts/loop-runner.sh" <<< "${STAGE10_CHANGED_FILES}"; then
   STAGE10_LOOP_RUNNER_GREP="$(stage10_capture "loop-runner-stage10-grep" grep -n 'Stage 10' scripts/loop-runner.sh)"
 fi
 
@@ -367,7 +370,7 @@ STAGE10_PROOF_SUMMARY="${PROOF_DIR}/stage10-proof-summary.txt"
   printf '<!-- SENTINEL:risk=%s -->\n' "${STAGE10_RISK_LEVEL}"
   printf '<!-- SENTINEL:ledger=NONE -->\n'
   printf '<!-- SENTINEL:FILES_BEGIN -->\n'
-  stage10_format_files_markdown <<< "${STAGE10_DIFF_NAME_ONLY}"
+  stage10_format_files_markdown <<< "${STAGE10_CHANGED_FILES}"
   printf '<!-- SENTINEL:FILES_END -->\n'
   printf '<!-- SENTINEL:LEDGER_BEGIN -->\n'
   printf 'None\n'
@@ -407,7 +410,7 @@ STAGE10_PROOF_SUMMARY="${PROOF_DIR}/stage10-proof-summary.txt"
   printf 'risk_level_parsed: %s\n' "${STAGE10_RISK_LEVEL}"
   printf 'ledger_req_parsed: NONE\n'
   printf 'changed_files:\n'
-  printf '%s\n' "${STAGE10_DIFF_NAME_ONLY}"
+  printf '%s\n' "${STAGE10_CHANGED_FILES}"
 } > "${STAGE10_PROOF_SUMMARY}"
 
 [[ -s "${STAGE10_PR_BODY}" ]] || \
@@ -453,12 +456,7 @@ stage11_run() {
 [[ -s "${STAGE10_PROOF_SUMMARY}" ]] || \
   loop_stop 11 "proof/stage10-proof-summary.txt missing or empty before Stage 11" "${STAGE10_PROOF_SUMMARY}"
 
-STAGE11_CHANGED_FILES="$(
-  { git diff --name-only HEAD; git ls-files --others --exclude-standard; } \
-    | grep -v '^node_modules/' \
-    | grep -v '^package-lock\.json$' \
-    | sort -u || true
-)"
+STAGE11_CHANGED_FILES="$(collect_changed_files)"
 
 {
   printf 'task_id: %s\n' "${STAGE10_TASK_ID}"
