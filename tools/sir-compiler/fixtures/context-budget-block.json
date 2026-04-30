@@ -1,0 +1,51 @@
+{
+  "schema_version": "sir.v1",
+  "result_type": "BLOCK",
+  "repo_anchor": {
+    "branch": "main",
+    "head_sha": "644973a6b6e0db078a51e43d81463d4b8d37f10a"
+  },
+  "intent": {
+    "task_id": "T-GOV-28-CORE",
+    "summary": "Escalate with partial context when the context budget is exceeded.",
+    "actor_surface": "INTERNAL"
+  },
+  "compiler_audit": {
+    "block_code": "CONTEXT_BUDGET_EXCEEDED",
+    "warnings": [
+      "partial context emitted"
+    ],
+    "errors": [
+      "context budget exceeded before full task packet could be represented"
+    ]
+  },
+  "blocks": [
+    {
+      "code": "CONTEXT_BUDGET_EXCEEDED",
+      "message": "context budget exceeded before full task packet could be represented"
+    }
+  ],
+  "warnings": [
+    "partial context emitted"
+  ],
+  "escalation": {
+    "subtype": "ESCALATE_TO_GOVERNOR_WITH_PARTIAL_CONTEXT",
+    "partial_context": {
+      "reason": "context budget exceeded",
+      "included_files": [
+        "CLAUDE.md",
+        "tools/sir-compiler/src/index.ts"
+      ],
+      "omitted_files": [
+        "docs/SNAPSLOT_ACCEPTANCE_LEDGER.md"
+      ],
+      "excerpt_windows": [
+        {
+          "path": "tools/sir-compiler/src/index.ts",
+          "start_line": 1,
+          "end_line": 40
+        }
+      ]
+    }
+  }
+}

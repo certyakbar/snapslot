@@ -1,0 +1,65 @@
+{
+  "schema_version": "sir.v1",
+  "result_type": "EMIT_CANDIDATE",
+  "task": {
+    "id": "T-GOV-28-CORE",
+    "name": "Implement isolated TypeScript/Node SIR compiler core"
+  },
+  "repo_anchor": {
+    "branch": "main",
+    "head_sha": "644973a6b6e0db078a51e43d81463d4b8d37f10a",
+    "dirty_allowed": false
+  },
+  "intent": {
+    "task_id": "T-GOV-28-CORE",
+    "summary": "Compile a local SIR candidate without transport or runner integration.",
+    "actor_surface": "INTERNAL"
+  },
+  "scope": {
+    "allowed_files": [
+      "schemas/sir-base.json",
+      "schemas/sir-emit.json",
+      "schemas/sir-block.json",
+      "registries/command-registry.json",
+      "tools/sir-compiler/src/index.ts"
+    ],
+    "forbidden_files": [
+      "package.json",
+      "package-lock.json",
+      "scripts/loop-runner.sh"
+    ]
+  },
+  "risk": {
+    "tier": "HIGH",
+    "notes": [
+      "Governance-only compiler core."
+    ]
+  },
+  "validation": {
+    "commands": [
+      {
+        "id": "grep_literal",
+        "argv": [
+          "-qF",
+          "Ajv",
+          "tools/sir-compiler/src/schema-validator.ts"
+        ]
+      }
+    ]
+  },
+  "context": {
+    "files": [
+      "tools/sir-compiler/src/index.ts",
+      "tools/sir-compiler/src/schema-validator.ts"
+    ]
+  },
+  "governance": {
+    "workflow": "Governance-Only",
+    "docs_may_change": false,
+    "ledger_update_required": false
+  },
+  "compiler_audit": {
+    "warnings": [],
+    "errors": []
+  }
+}

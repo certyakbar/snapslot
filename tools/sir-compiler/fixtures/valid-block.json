@@ -1,0 +1,27 @@
+{
+  "schema_version": "sir.v1",
+  "result_type": "BLOCK",
+  "repo_anchor": {
+    "branch": "main",
+    "head_sha": "644973a6b6e0db078a51e43d81463d4b8d37f10a"
+  },
+  "intent": {
+    "task_id": "T-GOV-28-CORE",
+    "summary": "Block unsafe compiler input.",
+    "actor_surface": "INTERNAL"
+  },
+  "compiler_audit": {
+    "block_code": "SCHEMA_VALIDATION_FAILED",
+    "warnings": [],
+    "errors": [
+      "input result_type is missing"
+    ]
+  },
+  "blocks": [
+    {
+      "code": "SCHEMA_VALIDATION_FAILED",
+      "message": "input result_type is missing"
+    }
+  ],
+  "warnings": []
+}
