@@ -1,0 +1,27 @@
+{
+  "schema_version": "sir.v1",
+  "result_type": "BLOCK",
+  "repo_anchor": {
+    "branch": "main",
+    "head_sha": "644973a6b6e0db078a51e43d81463d4b8d37f10a"
+  },
+  "intent": {
+    "task_id": "T-GOV-28-CORE",
+    "summary": "Reject arbitrary command strings.",
+    "actor_surface": "INTERNAL"
+  },
+  "compiler_audit": {
+    "block_code": "COMMAND_REJECTED",
+    "warnings": [],
+    "errors": [
+      "command must be a structured command object and must match a registry entry"
+    ]
+  },
+  "blocks": [
+    {
+      "code": "COMMAND_REJECTED",
+      "message": "command must be a structured command object and must match a registry entry"
+    }
+  ],
+  "warnings": []
+}

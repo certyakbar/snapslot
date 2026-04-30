@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://snapslot.local/schemas/sir-emit.json",
+  "title": "SnapSlot SIR EMIT_CANDIDATE Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "result_type",
+    "task",
+    "repo_anchor",
+    "intent",
+    "scope",
+    "risk",
+    "validation",
+    "context",
+    "governance",
+    "compiler_audit"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "sir.v1"
+    },
+    "result_type": {
+      "type": "string",
+      "const": "EMIT_CANDIDATE"
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "repo_anchor": {
+      "$ref": "https://snapslot.local/schemas/sir-base.json#/$defs/repo_anchor"
+    },
+    "intent": {
+      "$ref": "https://snapslot.local/schemas/sir-base.json#/$defs/intent"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_files", "forbidden_files"],
+      "properties": {
+        "allowed_files": {
+          "type": "array",
+          "items": {
+            "$ref": "https://snapslot.local/schemas/sir-base.json#/$defs/file_path"
+          }
+        },
+        "forbidden_files": {
+          "type": "array",
+          "items": {
+            "$ref": "https://snapslot.local/schemas/sir-base.json#/$defs/file_path"
+          }
+        }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier"],
+      "properties": {
+        "tier": {
+          "$ref": "https://snapslot.local/schemas/sir-base.json#/$defs/risk_tier"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commands"],
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "https://snapslot.local/schemas/sir-base.json#/$defs/command_object"
+          }
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files"],
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "https://snapslot.local/schemas/sir-base.json#/$defs/file_path"
+          }
+        },
+        "partial_context": {
+          "$ref": "https://snapslot.local/schemas/sir-base.json#/$defs/partial_context"
+        }
+      }
+    },
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflow", "docs_may_change", "ledger_update_required"],
+      "properties": {
+        "workflow": {
+          "type": "string",
+          "minLength": 1
+        },
+        "docs_may_change": {
+          "type": "boolean"
+        },
+        "ledger_update_required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "compiler_audit": {
+      "$ref": "https://snapslot.local/schemas/sir-base.json#/$defs/compiler_audit"
+    }
+  }
+}

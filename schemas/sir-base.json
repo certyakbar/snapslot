@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://snapslot.local/schemas/sir-base.json",
+  "title": "SnapSlot SIR Base Definitions",
+  "type": "object",
+  "$defs": {
+    "file_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//)(?!.*(?:^|/)\\.(?:/|$))[^\\u0000]+$"
+    },
+    "sha40": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "risk_tier": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    },
+    "command_object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "argv"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "maxItems": 32
+        },
+        "cwd": {
+          "type": "string",
+          "enum": ["repo_root"]
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300000
+        }
+      }
+    },
+    "block_code": {
+      "type": "string",
+      "enum": [
+        "SCHEMA_VALIDATION_FAILED",
+        "SEMANTIC_VALIDATION_FAILED",
+        "COMMAND_REJECTED",
+        "CONTEXT_BUDGET_EXCEEDED",
+        "COMPILER_RUNTIME_FAILURE"
+      ]
+    },
+    "repo_anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "head_sha"],
+      "properties": {
+        "branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "head_sha": {
+          "$ref": "#/$defs/sha40"
+        },
+        "base_sha": {
+          "$ref": "#/$defs/sha40"
+        },
+        "dirty_allowed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "summary"],
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor_surface": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "compiler_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["warnings", "errors"],
+      "properties": {
+        "block_code": {
+          "$ref": "#/$defs/block_code"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "excerpt_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "start_line", "end_line"],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/file_path"
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha": {
+          "$ref": "#/$defs/sha40"
+        }
+      }
+    },
+    "partial_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "included_files", "omitted_files"],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "included_files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file_path"
+          }
+        },
+        "omitted_files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file_path"
+          }
+        },
+        "excerpt_windows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/excerpt_window"
+          }
+        }
+      }
+    }
+  }
+}

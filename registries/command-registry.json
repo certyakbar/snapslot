@@ -1,0 +1,96 @@
+{
+  "schema_version": "command-registry.v1",
+  "defaults": {
+    "cwd": "repo_root",
+    "shell": false,
+    "timeout_ms": 30000,
+    "max_buffer_bytes": 1048576,
+    "network": "forbidden",
+    "writes": "forbidden",
+    "env_allowlist": ["PATH"]
+  },
+  "commands": [
+    {
+      "id": "grep_literal",
+      "program": "grep",
+      "allowed_argv_patterns": [
+        ["^-qF$", "^.+$", "^[^/][^\\u0000]*$"],
+        ["^-R$", "^.+$", "^[^/][^\\u0000]*$"]
+      ],
+      "forbidden_flags": ["-E", "-P", "--perl-regexp"],
+      "cwd_policy": "repo_root",
+      "path_policy": "relative_no_parent",
+      "timeout_ms": 30000,
+      "max_buffer_bytes": 1048576,
+      "network": "forbidden",
+      "writes": "forbidden",
+      "expected_output_class": "text",
+      "proof_path_class": "repo_relative"
+    },
+    {
+      "id": "bash_syntax_check",
+      "program": "bash",
+      "allowed_argv_patterns": [
+        ["^-n$", "^[^/][^\\u0000]*\\.sh$"]
+      ],
+      "forbidden_flags": ["-c", "-i", "-l"],
+      "cwd_policy": "repo_root",
+      "path_policy": "relative_no_parent",
+      "timeout_ms": 30000,
+      "max_buffer_bytes": 1048576,
+      "network": "forbidden",
+      "writes": "forbidden",
+      "expected_output_class": "text",
+      "proof_path_class": "repo_relative"
+    },
+    {
+      "id": "git_name_only_check",
+      "program": "git",
+      "allowed_argv_patterns": [
+        ["^diff$", "^--name-only$", "^HEAD$"],
+        ["^status$", "^--short$"]
+      ],
+      "forbidden_flags": ["-c", "--exec-path", "--upload-pack", "--receive-pack"],
+      "cwd_policy": "repo_root",
+      "path_policy": "none",
+      "timeout_ms": 30000,
+      "max_buffer_bytes": 1048576,
+      "network": "forbidden",
+      "writes": "forbidden",
+      "expected_output_class": "text",
+      "proof_path_class": "none"
+    },
+    {
+      "id": "npm_typecheck",
+      "program": "npx",
+      "allowed_argv_patterns": [
+        ["^tsc$", "^--noEmit$"]
+      ],
+      "forbidden_flags": ["install", "ci", "add", "update"],
+      "cwd_policy": "repo_root",
+      "path_policy": "none",
+      "timeout_ms": 120000,
+      "max_buffer_bytes": 1048576,
+      "network": "forbidden",
+      "writes": "forbidden",
+      "expected_output_class": "text",
+      "proof_path_class": "none"
+    },
+    {
+      "id": "npm_test",
+      "program": "npm",
+      "allowed_argv_patterns": [
+        ["^test$"]
+      ],
+      "forbidden_flags": ["install", "ci", "add", "update"],
+      "cwd_policy": "repo_root",
+      "path_policy": "none",
+      "timeout_ms": 120000,
+      "max_buffer_bytes": 1048576,
+      "network": "forbidden",
+      "writes": "forbidden",
+      "expected_output_class": "text",
+      "proof_path_class": "none"
+    }
+  ]
+}
