@@ -268,26 +268,65 @@ stage10_trim() {
   printf '%s' "${value}"
 }
 
+parse_packet_scalar() {
+  local field_name="$1" source_file="$2"
+  awk -v field="${field_name}" '
+    BEGIN {
+      field_lower = tolower(field)
+      awaiting_value = 0
+    }
+    {
+      line = $0
+      trimmed = line
+      sub(/^[[:space:]]+/, "", trimmed)
+      sub(/[[:space:]]+$/, "", trimmed)
+      lower = tolower(trimmed)
+    }
+    awaiting_value && trimmed != "" {
+      print trimmed
+      exit
+    }
+    lower == field_lower || lower == field_lower ":" {
+      awaiting_value = 1
+      next
+    }
+    index(lower, field_lower ":") == 1 {
+      value = trimmed
+      sub(/^[^:]*:[[:space:]]*/, "", value)
+      print value
+      exit
+    }
+  ' "${source_file}"
+}
+
+stage10_format_files_markdown() {
+  while IFS= read -r stage10_file; do
+    [[ -z "${stage10_file}" ]] && continue
+    printf -- '- %s\n' "${stage10_file}"
+  done
+}
+
 STAGE10_ALLOWED_FILES="$(stage10_capture "allowed-files" parse_packet_list 'ALLOWED FILES' "${GOV_OUTPUT_FILE}")"
 [[ -n "${STAGE10_ALLOWED_FILES}" ]] || \
   loop_stop 10 "Stage 10 ALLOWED FILES list empty or absent" "${GOV_OUTPUT_FILE}"
 
-STAGE10_TASK_ID=""
-STAGE10_RISK_LEVEL=""
-while IFS= read -r stage10_line; do
-  if [[ "${stage10_line}" == task_id:* ]]; then
-    stage10_value="${stage10_line#task_id:}"
-    STAGE10_TASK_ID="$(stage10_trim "${stage10_value}")"
-  elif [[ "${stage10_line}" == risk_level:* ]]; then
-    stage10_value="${stage10_line#risk_level:}"
-    STAGE10_RISK_LEVEL="$(stage10_trim "${stage10_value}")"
-  fi
-done < "${GOV_OUTPUT_FILE}"
+STAGE10_TASK_ID="$(stage10_trim "$(stage10_capture "task-id" parse_packet_scalar 'TASK ID' "${GOV_OUTPUT_FILE}")")"
+if [[ -z "${STAGE10_TASK_ID}" ]]; then
+  STAGE10_TASK_ID="$(stage10_trim "$(stage10_capture "task-id-alt" parse_packet_scalar 'task_id' "${GOV_OUTPUT_FILE}")")"
+fi
+[[ -n "${STAGE10_TASK_ID}" ]] || \
+  loop_stop 10 "Stage 10 task_id parse missing" "${GOV_OUTPUT_FILE}"
 
-[[ "${STAGE10_TASK_ID}" == "T-GOV-21" ]] || \
-  loop_stop 10 "Stage 10 task_id parse mismatch" "${STAGE10_TASK_ID:-missing}"
-[[ "${STAGE10_RISK_LEVEL}" == "HIGH" ]] || \
-  loop_stop 10 "Stage 10 risk_level parse mismatch" "${STAGE10_RISK_LEVEL:-missing}"
+STAGE10_RISK_LEVEL="$(stage10_trim "$(stage10_capture "risk-level" parse_packet_scalar 'RISK' "${GOV_OUTPUT_FILE}")")"
+if [[ -z "${STAGE10_RISK_LEVEL}" ]]; then
+  STAGE10_RISK_LEVEL="$(stage10_trim "$(stage10_capture "risk-level-alt" parse_packet_scalar 'risk_level' "${GOV_OUTPUT_FILE}")")"
+fi
+case "${STAGE10_RISK_LEVEL}" in
+  CRITICAL|HIGH|MEDIUM|LOW) ;;
+  *)
+    loop_stop 10 "Stage 10 risk_level parse invalid" "${STAGE10_RISK_LEVEL:-missing}"
+    ;;
+esac
 
 STAGE10_GIT_STATUS="$(stage10_capture "git-status-short" git status --short)"
 STAGE10_DIFF_NAME_ONLY="$(stage10_capture "git-diff-name-only" git diff --name-only)"
@@ -314,13 +353,13 @@ STAGE10_PROOF_SUMMARY="${PROOF_DIR}/stage10-proof-summary.txt"
   printf '<!-- SENTINEL:risk=%s -->\n' "${STAGE10_RISK_LEVEL}"
   printf '<!-- SENTINEL:ledger=NONE -->\n'
   printf '<!-- SENTINEL:FILES_BEGIN -->\n'
-  printf '%s\n' "${STAGE10_DIFF_NAME_ONLY}"
+  stage10_format_files_markdown <<< "${STAGE10_DIFF_NAME_ONLY}"
   printf '<!-- SENTINEL:FILES_END -->\n'
   printf '<!-- SENTINEL:LEDGER_BEGIN -->\n'
   printf 'None\n'
   printf '<!-- SENTINEL:LEDGER_END -->\n\n'
-  printf '# T-GOV-21 Stage 10 PR Body Draft\n\n'
-  printf 'Stage 10 generated this local PR body draft and proof summary only. Ledger update remains deferred to T-GOV-25. Stages 11 and 12 remain deferred and are not implemented by this run.\n\n'
+  printf '# %s Stage 10 PR Body Draft\n\n' "${STAGE10_TASK_ID}"
+  printf 'Stage 10 generated this local PR body draft and proof summary only. Ledger update remains deferred to T-GOV-25. Stage 11 may use this body to create a draft PR; Stage 12 remains deferred and is not implemented by this run.\n\n'
   printf 'This draft does not claim Sentinel PASS, Governor approval for merge, merge approval, PR creation, branch creation, commit, push, or ready-for-review status.\n\n'
   printf '## Current execution proof\n\n'
   printf '### git status --short\n\n'
@@ -373,4 +412,112 @@ STAGE10_LEDGER_BLOCK="$(stage10_capture "ledger-block-check" awk '
 grep -qxF 'ledger_req_parsed: NONE' "${STAGE10_PROOF_SUMMARY}" || \
   loop_stop 10 "proof/stage10-proof-summary.txt missing ledger_req_parsed: NONE" "${STAGE10_PROOF_SUMMARY}"
 
-printf 'STAGES 1–10 COMPLETE. Proof bundle at proof/. Stages 11–12 require a separate governed packet.\n'
+# Stage 11 — Branch, Commit, Push, and Draft PR Creation
+STAGE11_OUTPUT_FILE="${PROOF_DIR}/stage11-output.txt"
+STAGE11_PR_URL_FILE="${PROOF_DIR}/stage11-draft-pr-url.txt"
+: > "${STAGE11_OUTPUT_FILE}"
+
+stage11_log() {
+  printf '%s\n' "$*" >> "${STAGE11_OUTPUT_FILE}"
+}
+
+stage11_run() {
+  local label="$1"
+  shift
+  stage11_log "--- CMD: $*"
+  set +e
+  "$@" >> "${STAGE11_OUTPUT_FILE}" 2>&1
+  local exit_code=$?
+  set -e
+  if [[ "${exit_code}" -ne 0 ]]; then
+    loop_stop 11 "Stage 11 command failed: ${label}" "exit code ${exit_code}; see ${STAGE11_OUTPUT_FILE}"
+  fi
+}
+
+[[ -s "${STAGE10_PR_BODY}" ]] || \
+  loop_stop 11 "proof/stage10-pr-body.md missing or empty before Stage 11" "${STAGE10_PR_BODY}"
+[[ -s "${STAGE10_PROOF_SUMMARY}" ]] || \
+  loop_stop 11 "proof/stage10-proof-summary.txt missing or empty before Stage 11" "${STAGE10_PROOF_SUMMARY}"
+
+STAGE11_CHANGED_FILES="$(
+  { git diff --name-only HEAD; git ls-files --others --exclude-standard; } \
+    | grep -v '^node_modules/' \
+    | grep -v '^package-lock\.json$' \
+    | sort -u || true
+)"
+
+{
+  printf 'task_id: %s\n' "${STAGE10_TASK_ID}"
+  printf 'risk_level: %s\n' "${STAGE10_RISK_LEVEL}"
+  printf 'allowed_files:\n%s\n' "${STAGE10_ALLOWED_FILES}"
+  printf 'changed_files:\n%s\n' "${STAGE11_CHANGED_FILES}"
+} >> "${STAGE11_OUTPUT_FILE}"
+
+[[ -n "${STAGE11_CHANGED_FILES}" ]] || \
+  loop_stop 11 "Stage 11 changed file list empty before staging" "ALLOWED FILES is non-empty"
+
+while IFS= read -r stage11_changed_file; do
+  [[ -z "${stage11_changed_file}" ]] && continue
+  if ! grep -Fxq "${stage11_changed_file}" <<< "${STAGE10_ALLOWED_FILES}"; then
+    loop_stop 11 "Stage 11 changed file outside ALLOWED FILES before staging" "${stage11_changed_file}"
+  fi
+done <<< "${STAGE11_CHANGED_FILES}"
+
+while IFS= read -r stage11_allowed_file; do
+  [[ -z "${stage11_allowed_file}" ]] && continue
+  if ! grep -Fxq "${stage11_allowed_file}" <<< "${STAGE11_CHANGED_FILES}"; then
+    loop_stop 11 "Stage 11 allowed file missing from changed files before staging" "${stage11_allowed_file}"
+  fi
+done <<< "${STAGE10_ALLOWED_FILES}"
+
+STAGE11_BRANCH_TASK="$(printf '%s' "${STAGE10_TASK_ID}" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9._-' '-')"
+STAGE11_BRANCH_TASK="${STAGE11_BRANCH_TASK#-}"
+STAGE11_BRANCH_TASK="${STAGE11_BRANCH_TASK%-}"
+[[ -n "${STAGE11_BRANCH_TASK}" ]] || \
+  loop_stop 11 "Stage 11 deterministic branch suffix empty" "${STAGE10_TASK_ID}"
+STAGE11_BRANCH="loop/${STAGE11_BRANCH_TASK}"
+STAGE11_COMMIT_MESSAGE="${STAGE10_TASK_ID}: governed loop draft PR creation"
+
+stage11_run "git-switch-create-branch" git switch -c "${STAGE11_BRANCH}"
+
+while IFS= read -r stage11_allowed_file; do
+  [[ -z "${stage11_allowed_file}" ]] && continue
+  stage11_run "git-add-${stage11_allowed_file}" git add -- "${stage11_allowed_file}"
+done <<< "${STAGE10_ALLOWED_FILES}"
+
+STAGE11_STAGED_FILES="$(git diff --cached --name-only | sort -u || true)"
+stage11_log "staged_files:"
+stage11_log "${STAGE11_STAGED_FILES}"
+[[ -n "${STAGE11_STAGED_FILES}" ]] || \
+  loop_stop 11 "Stage 11 staged file list empty after git add" "see ${STAGE11_OUTPUT_FILE}"
+
+while IFS= read -r stage11_staged_file; do
+  [[ -z "${stage11_staged_file}" ]] && continue
+  if ! grep -Fxq "${stage11_staged_file}" <<< "${STAGE10_ALLOWED_FILES}"; then
+    loop_stop 11 "Stage 11 staged file outside ALLOWED FILES" "${stage11_staged_file}"
+  fi
+done <<< "${STAGE11_STAGED_FILES}"
+
+stage11_run "git-commit" git commit -m "${STAGE11_COMMIT_MESSAGE}"
+stage11_run "git-push" git push -u origin "${STAGE11_BRANCH}"
+
+STAGE11_PR_TITLE="${STAGE10_TASK_ID}: governed loop draft PR creation"
+stage11_log "--- CMD: gh pr create --draft --base main --head ${STAGE11_BRANCH} --title ${STAGE11_PR_TITLE} --body-file ${STAGE10_PR_BODY#${REPO_ROOT}/}"
+set +e
+STAGE11_PR_CREATE_OUTPUT="$(gh pr create --draft --base main --head "${STAGE11_BRANCH}" --title "${STAGE11_PR_TITLE}" --body-file "${STAGE10_PR_BODY}" 2>&1)"
+STAGE11_PR_CREATE_EXIT=$?
+set -e
+printf '%s\n' "${STAGE11_PR_CREATE_OUTPUT}" >> "${STAGE11_OUTPUT_FILE}"
+if [[ "${STAGE11_PR_CREATE_EXIT}" -ne 0 ]]; then
+  loop_stop 11 "gh pr create --draft failed" "exit code ${STAGE11_PR_CREATE_EXIT}; see ${STAGE11_OUTPUT_FILE}"
+fi
+
+STAGE11_PR_URL="$(printf '%s\n' "${STAGE11_PR_CREATE_OUTPUT}" | grep -Eo 'https://github\.com/[^[:space:]]+/pull/[0-9]+' | tail -1 || true)"
+[[ -n "${STAGE11_PR_URL}" ]] || \
+  loop_stop 11 "gh pr create --draft returned empty URL" "see ${STAGE11_OUTPUT_FILE}"
+printf '%s\n' "${STAGE11_PR_URL}" > "${STAGE11_PR_URL_FILE}" || \
+  loop_stop 11 "draft PR URL cannot be written" "${STAGE11_PR_URL_FILE}"
+[[ -s "${STAGE11_PR_URL_FILE}" ]] || \
+  loop_stop 11 "proof/stage11-draft-pr-url.txt missing or empty" "${STAGE11_PR_URL_FILE}"
+
+printf 'STAGES 1-11 COMPLETE. Proof bundle at proof/. Stage 12 requires a separate governed packet.\n'

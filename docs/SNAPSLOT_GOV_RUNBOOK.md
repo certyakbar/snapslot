@@ -161,7 +161,7 @@ Any issue created through this form is structurally compatible with the `/dispat
 
 ## 10. Local loop runner
 
-The local loop runner (`scripts/loop-runner.sh`) implements Stages 1–10 of the SnapSlot Governed Autonomous Loop Contract (`docs/SNAPSLOT_AUTONOMOUS_LOOP_CONTRACT.md`). Stage 10 is implemented by T-GOV-21 and writes local Governor-review artifacts only. Stages 11–12 (draft PR creation and operator/Governor review stop) remain deferred to separate governed packets.
+The local loop runner (`scripts/loop-runner.sh`) implements Stages 1–11 of the SnapSlot Governed Autonomous Loop Contract (`docs/SNAPSLOT_AUTONOMOUS_LOOP_CONTRACT.md`). Stage 10 is implemented by T-GOV-21 and writes local Governor-review artifacts. Stage 11 is implemented by T-GOV-22 and creates a draft PR from the Stage 10 proof body. Stage 12 (operator/Governor review stop) remains deferred to a separate governed packet.
 
 ### 10.1 Invocation syntax
 
@@ -171,7 +171,7 @@ bash scripts/loop-runner.sh "<governor-prompt>"
 
 The sole argument is the full Governor prompt text passed verbatim to `claude -p`. Typically this is the contents of the task packet document the operator wants Governor to review.
 
-### 10.2 Stages implemented (1–10)
+### 10.2 Stages implemented (1–11)
 
 - **Stage 1 — Repo Re-Anchor**: fetches `origin/main`; verifies HEAD is on `main` and equals `origin/main`; checks for source working-tree modifications (permits `node_modules/` and `package-lock.json` WSL noise only); verifies `ops/GOVERNOR_APPROVAL.json` has `"verdict": "NONE"`; confirms required governance docs are readable. 
 - **Stage 2 — No-Key Preflight**: stops if any `OPENAI_API_KEY`, `CODEX_API_KEY`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_API_KEY`, or any `OPENAI_*`/`ANTHROPIC_*` billing-path variable is set in the environment; stops if `.env`, `.env.*`, or `.envrc` in repo root defines AI API key variables; stops if `.claude/settings.json` or `.claude/settings.local.json` contains `apiKeyHelper`. Emits `NO-KEY PREFLIGHT: PASS — no observable AI API key execution path detected` on clean pass.
@@ -182,7 +182,8 @@ The sole argument is the full Governor prompt text passed verbatim to `claude -p
 - **Stage 7 — Packet Validation Commands**: extracts VALIDATION COMMANDS from Governor output; runs each in order; captures exact output to `proof/stage7-validation-output.txt`; stops on any non-zero exit.
 - **Stage 8 — Deterministic Repo Checks**: if active packet references typecheck or tests, runs `npx tsc --noEmit` and `npm test` and captures output to `proof/stage8-checks-output.txt`; otherwise logs skip.
 - **Stage 9 — Proof Output Collection**: verifies all expected proof files exist in `proof/`; stops naming the missing file if any is absent.
-- **Stage 10 — PR Body / Proof Draft Generation**: captures current execution proof from `git status --short`, `git diff --name-only`, `git diff --summary`, and `git diff --raw`; verifies changed files remain within the active packet's ALLOWED FILES; writes `proof/stage10-pr-body.md` and `proof/stage10-proof-summary.txt` as local Governor-review artifacts only. It does not create a branch, stage, commit, push, create a PR, mark a PR ready, approve, merge, or edit `ops/GOVERNOR_APPROVAL.json`.
+- **Stage 10 — PR Body / Proof Draft Generation**: captures current execution proof from `git status --short`, `git diff --name-only`, `git diff --summary`, and `git diff --raw`; verifies changed files remain within the active packet's ALLOWED FILES; writes `proof/stage10-pr-body.md` and `proof/stage10-proof-summary.txt` as Governor-review artifacts. Stage 10 itself does not create a branch, stage, commit, push, create a PR, mark a PR ready, approve, merge, or edit `ops/GOVERNOR_APPROVAL.json`.
+- **Stage 11 — Branch, Commit, Push, and Draft PR Creation**: verifies `proof/stage10-pr-body.md` and `proof/stage10-proof-summary.txt` exist and are non-empty; verifies the current changed files exactly match the active packet's ALLOWED FILES; creates a deterministic task-derived branch; stages only active-packet allowed files; verifies no staged file is outside ALLOWED FILES; commits with a deterministic task-scoped message; pushes the branch; creates a draft PR with `gh pr create --draft` using `proof/stage10-pr-body.md` as the PR body; writes full command output to `proof/stage11-output.txt`; writes the draft PR URL to `proof/stage11-draft-pr-url.txt`; and stops after draft PR creation. It does not mark the PR ready, approve, merge, edit `ops/GOVERNOR_APPROVAL.json`, bypass Sentinel, or retry blindly after `gh pr create --draft` failure.
 
 ### 10.3 Proof bundle location
 
@@ -201,6 +202,8 @@ Expected proof files after a successful run:
 - `proof/stage8-checks-output.txt`
 - `proof/stage10-pr-body.md`
 - `proof/stage10-proof-summary.txt`
+- `proof/stage11-output.txt`
+- `proof/stage11-draft-pr-url.txt`
 
 ### 10.4 Fail-closed behavior
 
@@ -214,15 +217,15 @@ No self-recovery is attempted. A stopped loop requires a new Governor-cleared co
 
 ### 10.5 Completion signal
 
-On successful completion of Stage 10, the script prints exactly:
+On successful completion of Stage 11, the script prints exactly:
 
 ```
-STAGES 1–10 COMPLETE. Proof bundle at proof/. Stages 11–12 require a separate governed packet.
+STAGES 1-11 COMPLETE. Proof bundle at proof/. Stage 12 requires a separate governed packet.
 ```
 
 ### 10.6 Deferred stages
 
-Stages 11–12 (draft PR creation and operator/Governor final review) are not implemented. Stage 11 is deferred to T-GOV-22. Stage 12 is deferred to T-GOV-23.
+Stage 12 (operator/Governor final review) is not implemented. Stage 12 is deferred to T-GOV-23.
 
 ### 10.7 Packet list parser note
 
@@ -230,11 +233,11 @@ The `parse_packet_list` function skips markdown horizontal rule separator lines 
 
 ### 10.8 Stage 10-12 design contract
 
-T-GOV-20 defines the design contract for Stages 10-12 in `docs/SNAPSLOT_AUTONOMOUS_LOOP_CONTRACT.md`. T-GOV-21 implements Stage 10 only; `scripts/loop-runner.sh` still leaves Stages 11-12 deferred.
+T-GOV-20 defines the design contract for Stages 10-12 in `docs/SNAPSLOT_AUTONOMOUS_LOOP_CONTRACT.md`. T-GOV-21 implements Stage 10. T-GOV-22 implements Stage 11. `scripts/loop-runner.sh` still leaves Stage 12 deferred.
 
 Stage 10 is limited to PR body/proof draft generation. It must capture proof from the current working tree at execution time, including `git status --short`, `git diff --name-only`, `git diff --summary`, `git diff --raw`, and mode-sensitive proof for `scripts/loop-runner.sh` when relevant. The draft PR body must include Sentinel anchors, changed-file scope, and exact proof output. It must not claim merge approval or Governor approval.
 
-Stage 11 is limited to branch, scoped commit, push, and draft PR creation. It may create a branch only from exact clean synced `main` or from an exact allowed post-builder diff state with proof recorded before branch creation. It must commit only active-packet allowed files, push the branch, and create a draft PR using the Stage 10 proof bundle. If `gh pr create --draft` fails, it stops and reports; it does not retry blindly.
+Stage 11 is limited to branch, scoped commit, push, and draft PR creation. It creates a deterministic task-derived branch from the allowed post-builder diff state, commits only active-packet allowed files, pushes the branch, and creates a draft PR using the Stage 10 PR body. If `gh pr create --draft` fails, it stops and reports; it does not retry blindly.
 
 Stage 12 is a handoff stop. It prints the PR URL, proof bundle summary, and exact next manual review commands or requirements, then stops. It does not mark the PR ready, approve the PR, merge the PR, edit `ops/GOVERNOR_APPROVAL.json`, bypass Sentinel, or rerun after failure.
 
@@ -243,7 +246,7 @@ Proof-honesty rules for these stages are strict: no stale proof, no proof from a
 Implementation sequencing remains:
 
 1. T-GOV-21: Implement Stage 10 PR body/proof draft generation only.
-2. T-GOV-22: Implement Stage 11 draft PR creation only.
+2. T-GOV-22: Implement Stage 11 draft PR creation only. Status: implemented.
 3. T-GOV-23: Implement Stage 12 stop/report handoff only.
 4. T-GOV-24: Witness full Stages 1-12 loop execution.
 5. T-GOV-25: Ledger update for proven Stages 1-12.

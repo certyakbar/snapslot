@@ -240,7 +240,7 @@ Implementation status: Stage 10 is implemented by T-GOV-21 in `scripts/loop-runn
 
 ### Stage 11 — Branch, Commit, Push, and Draft PR Creation
 
-Design status: design only. Stage 11 is not implemented in `scripts/loop-runner.sh`; implementation is deferred to T-GOV-22.
+Implementation status: Stage 11 is implemented by T-GOV-22 in `scripts/loop-runner.sh`.
 
 - Actor: loop automation (shell, including `git` and `gh pr create --draft`).
 - Action: perform only the branch, commit, push, and draft PR creation mechanics needed to publish the already-proven scoped diff.
@@ -252,6 +252,8 @@ Design status: design only. Stage 11 is not implemented in `scripts/loop-runner.
 - Stage 11 must push the branch to remote.
 - Stage 11 must create a draft PR only, using the proof bundle produced by Stage 10. It must not synthesize new claims during PR creation.
 - Stage 11 must stop and report if `gh pr create --draft` fails. It must not retry blindly or alter scope to make the command pass.
+- Stage 11 writes the full command output to `proof/stage11-output.txt` and writes the draft PR URL to `proof/stage11-draft-pr-url.txt`.
+- Stage 11 stops after draft PR creation. Stage 12 remains separate and is not implemented by Stage 11.
 - Pass: branch is created from a permitted proven state, only allowed files are committed, push succeeds, draft PR is created, and the draft PR URL is captured.
 - Stop conditions:
   - clean synced `main` proof is missing when required
@@ -370,7 +372,8 @@ The proof bundle for every loop cycle must contain:
 6. Exact combined tracked-plus-untracked scope diff after Codex, the full output of the Stage 6 check.
 7. Exact output of every validation command.
 8. Exact typecheck output and exact test suite output.
-9. Draft PR URL after Stage 11.
+9. Full Stage 11 command output in `proof/stage11-output.txt`.
+10. Draft PR URL after Stage 11 in `proof/stage11-draft-pr-url.txt`.
 
 No paraphrasing is allowed. No truncation is allowed unless the raw original has been captured. If raw capture was not possible for any item, the proof bundle is incomplete and Stage 9 must stop.
 
@@ -426,7 +429,7 @@ The loop must never:
 23. Allow Codex to commit, push, stage files, or self-approve as Builder work. Commit mechanics require a future packet and must preserve operator final authority.
 24. Retry without a new Governor-cleared corrective packet authorizing the retry.
 25. Claim that Stage 2 preflight certifies the absence of keys outside the shell environment, outside repo-tracked files, and outside the config paths the preflight reads.
-26. Treat Stage 10, Stage 11, or Stage 12 as implemented before T-GOV-21, T-GOV-22, and T-GOV-23 complete with proof.
+26. Treat Stage 10 or Stage 11 as implemented before T-GOV-21 and T-GOV-22 complete with proof, or treat Stage 12 as implemented before T-GOV-23 completes with proof.
 27. Bundle token/test-efficiency governance into the Stage 10-12 implementation sequence before T-GOV-26.
 28. Introduce mark-ready automation, auto-approval, auto-merge, direct Governor approval manifest edits, Sentinel bypass, or blind rerun after failure as a permitted capability.
 
@@ -439,7 +442,7 @@ Implementation packets that follow this contract must be scoped separately. Each
 The Stage 10-12 implementation sequence is fixed unless a later governed packet changes it:
 
 1. T-GOV-21: Implement Stage 10 PR body/proof draft generation only.
-2. T-GOV-22: Implement Stage 11 draft PR creation only.
+2. T-GOV-22: Implement Stage 11 draft PR creation only. Status: implemented in `scripts/loop-runner.sh`.
 3. T-GOV-23: Implement Stage 12 stop/report handoff only.
 4. T-GOV-24: Witness full Stages 1-12 loop execution.
 5. T-GOV-25: Ledger update for proven Stages 1-12.
