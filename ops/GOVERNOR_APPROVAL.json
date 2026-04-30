@@ -1,18 +1,13 @@
 {
-  "verdict": "APPROVE",
-  "pr_number": 73,
-  "governor_login": "certyakbar",
-  "risk_tier": "HIGH",
-  "approved_head_sha": "8551895307f9ec3e0f4a959f10a44f150090e8d4",
-  "approved_parent_sha": "8551895307f9ec3e0f4a959f10a44f150090e8d4",
-  "approved_tree_sha": "825db762e1370a8a6cfbef9d37c84e1d156aa4f6",
-  "declared_files": [
-    "docs/SNAPSLOT_AUTONOMOUS_LOOP_CONTRACT.md",
-    "docs/SNAPSLOT_GOV_RUNBOOK.md",
-    "docs/SNAPSLOT_TOKEN_EFFICIENCY_GOVERNANCE.md",
-    "scripts/loop-runner.sh",
-    "scripts/token-budget-check.sh"
-  ],
-  "issued_at": "2026-04-30T11:39:39Z",
-  "approval_basis": "GOVERNOR VERDICT: APPROVE FOR MERGE for PR #73 / T-GOV-26"
+  "schema_version": "1",
+  "verdict": "NONE",
+  "governor_login": null,
+  "pr_number": null,
+  "approved_parent_sha": null,
+  "approved_tree_sha": null,
+  "risk_tier": null,
+  "task_id": null,
+  "declared_files": [],
+  "ledger_state": null,
+  "issued_at": null
 }
