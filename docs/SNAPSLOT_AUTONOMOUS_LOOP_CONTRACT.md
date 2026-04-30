@@ -253,7 +253,7 @@ Implementation status: Stage 11 is implemented by T-GOV-22 in `scripts/loop-runn
 - Stage 11 must create a draft PR only, using the proof bundle produced by Stage 10. It must not synthesize new claims during PR creation.
 - Stage 11 must stop and report if `gh pr create --draft` fails. It must not retry blindly or alter scope to make the command pass.
 - Stage 11 writes the full command output to `proof/stage11-output.txt` and writes the draft PR URL to `proof/stage11-draft-pr-url.txt`.
-- Stage 11 stops after draft PR creation. Stage 12 remains separate and is not implemented by Stage 11.
+- After Stage 11 creates the draft PR and writes the draft PR URL proof, execution proceeds immediately to Stage 12.
 - Pass: branch is created from a permitted proven state, only allowed files are committed, push succeeds, draft PR is created, and the draft PR URL is captured.
 - Stop conditions:
   - clean synced `main` proof is missing when required
@@ -266,7 +266,7 @@ Implementation status: Stage 11 is implemented by T-GOV-22 in `scripts/loop-runn
 
 ### Stage 12 — Operator / Governor Handoff Stop
 
-Design status: design only. Stage 12 is not implemented in `scripts/loop-runner.sh`; implementation is deferred to T-GOV-23.
+Implementation status: Stage 12 is implemented by T-GOV-23 in `scripts/loop-runner.sh`.
 
 - Actor: loop automation (shell) for reporting only; operator and Governor for all review and approval decisions after the loop stops.
 - Action: print the draft PR URL, print the proof bundle summary, print exact next manual commands or review requirements, and stop.
@@ -379,7 +379,7 @@ No paraphrasing is allowed. No truncation is allowed unless the raw original has
 
 ### 8.1 Stage 10-12 Proof-Honesty Requirements
 
-Stages 10-12 carry the T-GOV-19 proof-honesty observations forward as contract requirements. These requirements are design only until T-GOV-21, T-GOV-22, and T-GOV-23 implement them.
+Stages 10-12 carry the T-GOV-19 proof-honesty observations forward as contract requirements. These requirements are implemented by T-GOV-21 (Stage 10), T-GOV-22 (Stage 11), and T-GOV-23 (Stage 12).
 
 - No stale proof: every proof item used for PR body generation, branch publication, draft PR creation, or handoff must be captured at execution time from the current working tree.
 - No repo-state mismatch: proof captured from one repo state must not be submitted for an action performed in another repo state.
@@ -443,7 +443,7 @@ The Stage 10-12 implementation sequence is fixed unless a later governed packet 
 
 1. T-GOV-21: Implement Stage 10 PR body/proof draft generation only.
 2. T-GOV-22: Implement Stage 11 draft PR creation only. Status: implemented in `scripts/loop-runner.sh`.
-3. T-GOV-23: Implement Stage 12 stop/report handoff only.
+3. T-GOV-23: Implement Stage 12 stop/report handoff only. Status: implemented in `scripts/loop-runner.sh`.
 4. T-GOV-24: Witness full Stages 1-12 loop execution.
 5. T-GOV-25: Ledger update for proven Stages 1-12.
 6. T-GOV-26: Token/test-efficiency governance remains deferred and separate.

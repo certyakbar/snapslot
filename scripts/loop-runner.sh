@@ -359,7 +359,7 @@ STAGE10_PROOF_SUMMARY="${PROOF_DIR}/stage10-proof-summary.txt"
   printf 'None\n'
   printf '<!-- SENTINEL:LEDGER_END -->\n\n'
   printf '# %s Stage 10 PR Body Draft\n\n' "${STAGE10_TASK_ID}"
-  printf 'Stage 10 generated this local PR body draft and proof summary only. Ledger update remains deferred to T-GOV-25. Stage 11 may use this body to create a draft PR; Stage 12 remains deferred and is not implemented by this run.\n\n'
+  printf 'Stage 10 generated this local PR body draft and proof summary only. Ledger update remains deferred to T-GOV-25. Stage 11 may use this body to create a draft PR; Stage 12 may generate the operator/Governor handoff report after draft PR creation.\n\n'
   printf 'This draft does not claim Sentinel PASS, Governor approval for merge, merge approval, PR creation, branch creation, commit, push, or ready-for-review status.\n\n'
   printf '## Current execution proof\n\n'
   printf '### git status --short\n\n'
@@ -520,4 +520,72 @@ printf '%s\n' "${STAGE11_PR_URL}" > "${STAGE11_PR_URL_FILE}" || \
 [[ -s "${STAGE11_PR_URL_FILE}" ]] || \
   loop_stop 11 "proof/stage11-draft-pr-url.txt missing or empty" "${STAGE11_PR_URL_FILE}"
 
-printf 'STAGES 1-11 COMPLETE. Proof bundle at proof/. Stage 12 requires a separate governed packet.\n'
+# Stage 12 — Operator / Governor Handoff Stop
+STAGE12_HANDOFF_FILE="${PROOF_DIR}/stage12-handoff.txt"
+
+for stage12_required_proof_file in \
+  "proof/stage11-draft-pr-url.txt" \
+  "proof/stage11-output.txt" \
+  "proof/stage10-proof-summary.txt" \
+  "proof/stage6-scope.txt" \
+  "proof/stage7-validation-output.txt" \
+  "proof/stage8-checks-output.txt"
+do
+  [[ -s "${REPO_ROOT}/${stage12_required_proof_file}" ]] || \
+    loop_stop 12 "Required Stage 12 proof prerequisite missing or empty" "${stage12_required_proof_file}"
+done
+
+stage12_read_draft_pr_url() {
+  local draft_pr_url
+  draft_pr_url="$(<"${STAGE11_PR_URL_FILE}")"
+  draft_pr_url="${draft_pr_url#"${draft_pr_url%%[![:space:]]*}"}"
+  draft_pr_url="${draft_pr_url%"${draft_pr_url##*[![:space:]]}"}"
+  [[ -n "${draft_pr_url}" ]] || \
+    loop_stop 12 "Draft PR URL missing after read" "proof/stage11-draft-pr-url.txt"
+  printf '%s' "${draft_pr_url}"
+}
+
+STAGE12_DRAFT_PR_URL="$(stage12_read_draft_pr_url)"
+
+{
+  printf 'SNAPSLOT GOVERNED LOOP — STAGE 12 HANDOFF REPORT\n'
+  printf '\n'
+  printf 'Draft PR URL: %s\n' "${STAGE12_DRAFT_PR_URL}"
+  printf '\n'
+  printf 'Proof bundle path: %s\n' "${PROOF_DIR}"
+  printf '\n'
+  printf 'Proof files included:\n'
+  printf '  proof/stage1-git-status.txt\n'
+  printf '  proof/stage1-head-sha.txt\n'
+  printf '  proof/stage1-origin-sha.txt\n'
+  printf '  proof/stage2-nokey.txt\n'
+  printf '  proof/stage3-governor-output.txt\n'
+  printf '  proof/stage5-codex-output.txt\n'
+  printf '  proof/stage6-scope.txt\n'
+  printf '  proof/stage7-validation-output.txt\n'
+  printf '  proof/stage8-checks-output.txt\n'
+  printf '  proof/stage10-pr-body.md\n'
+  printf '  proof/stage10-proof-summary.txt\n'
+  printf '  proof/stage11-output.txt\n'
+  printf '  proof/stage11-draft-pr-url.txt\n'
+  printf '\n'
+  printf 'Changed-file summary:\n'
+  awk '/^changed_files:/{flag=1;next} flag{print}' "${PROOF_DIR}/stage10-proof-summary.txt"
+  printf '\n'
+  printf 'Validation summary reference: proof/stage7-validation-output.txt\n'
+  printf 'Checks summary reference: proof/stage8-checks-output.txt\n'
+  printf '\n'
+  printf 'Governor final review is required before any ready or merge action.\n'
+  printf 'Operator must keep the PR draft until Governor APPROVE FOR MERGE and Sentinel PASS are both present.\n'
+  printf 'Operator remains final merge authority.\n'
+} > "${STAGE12_HANDOFF_FILE}" || \
+  loop_stop 12 "proof/stage12-handoff.txt cannot be written" "${STAGE12_HANDOFF_FILE}"
+
+[[ -s "${STAGE12_HANDOFF_FILE}" ]] || \
+  loop_stop 12 "proof/stage12-handoff.txt missing or empty after write" "${STAGE12_HANDOFF_FILE}"
+
+printf '\n'
+cat "${STAGE12_HANDOFF_FILE}"
+printf '\n'
+
+printf 'STAGES 1-12 COMPLETE. Proof bundle at proof/. Operator/Governor review required before ready or merge.\n'
