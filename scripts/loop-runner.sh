@@ -57,7 +57,6 @@ parse_packet_list() {
 collect_changed_files() {
   { git diff --name-only HEAD; git ls-files --others --exclude-standard; } \
     | grep -v '^node_modules/' \
-    | grep -v '^package-lock\.json$' \
     | sort -u || true
 }
 
@@ -80,8 +79,7 @@ git rev-parse origin/main > "${PROOF_DIR}/stage1-origin-sha.txt"
 DIRTY_PATHS="$(
   git status --short \
     | awk '{print $NF}' \
-    | grep -v '^node_modules/' \
-    | grep -v '^package-lock\.json$' || true
+    | grep -v '^node_modules/' || true
 )"
 [[ -z "${DIRTY_PATHS}" ]] || \
   loop_stop 1 "Unapproved working-tree paths detected" "${DIRTY_PATHS}"
