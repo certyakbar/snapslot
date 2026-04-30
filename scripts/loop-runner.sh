@@ -136,6 +136,12 @@ printf 'NO-KEY PREFLIGHT: PASS — no observable AI API key execution path detec
 
 # Stage 3 — Governor Invocation
 GOV_OUTPUT_FILE="${PROOF_DIR}/stage3-governor-output.txt"
+STAGE3_TOKEN_BUDGET_FILE="${PROOF_DIR}/stage3-token-budget.json"
+if ! printf '%s' "${GOVERNOR_PROMPT}" | "${REPO_ROOT}/scripts/token-budget-check.sh" - governor_claude_pro_default "${STAGE3_TOKEN_BUDGET_FILE}"; then
+  loop_stop 3 "Governor prompt token-budget pre-check failed" "${STAGE3_TOKEN_BUDGET_FILE}"
+fi
+[[ -s "${STAGE3_TOKEN_BUDGET_FILE}" ]] || \
+  loop_stop 3 "Governor prompt token-budget proof missing or empty" "${STAGE3_TOKEN_BUDGET_FILE}"
 if ! claude -p "${GOVERNOR_PROMPT}" > "${GOV_OUTPUT_FILE}" 2>&1; then
   loop_stop 3 "Governor invocation failed (non-zero exit)" "see ${GOV_OUTPUT_FILE}"
 fi
@@ -155,6 +161,12 @@ fi
 # Stage 5 — Codex Builder Invocation
 CODEX_OUTPUT_FILE="${PROOF_DIR}/stage5-codex-output.txt"
 GOVERNOR_PACKET="$(cat "${GOV_OUTPUT_FILE}")"
+STAGE5_TOKEN_BUDGET_FILE="${PROOF_DIR}/stage5-token-budget.json"
+if ! "${REPO_ROOT}/scripts/token-budget-check.sh" "${GOV_OUTPUT_FILE}" builder_codex_default "${STAGE5_TOKEN_BUDGET_FILE}"; then
+  loop_stop 5 "Builder packet token-budget pre-check failed" "${STAGE5_TOKEN_BUDGET_FILE}"
+fi
+[[ -s "${STAGE5_TOKEN_BUDGET_FILE}" ]] || \
+  loop_stop 5 "Builder packet token-budget proof missing or empty" "${STAGE5_TOKEN_BUDGET_FILE}"
 set +e
 codex exec --full-auto --sandbox workspace-write "${GOVERNOR_PACKET}" > "${CODEX_OUTPUT_FILE}" 2>&1
 CODEX_EXIT=$?
@@ -226,7 +238,9 @@ for proof_file in \
   "proof/stage1-head-sha.txt" \
   "proof/stage1-origin-sha.txt" \
   "proof/stage2-nokey.txt" \
+  "proof/stage3-token-budget.json" \
   "proof/stage3-governor-output.txt" \
+  "proof/stage5-token-budget.json" \
   "proof/stage5-codex-output.txt" \
   "proof/stage6-scope.txt" \
   "proof/stage7-validation-output.txt" \
@@ -559,7 +573,9 @@ STAGE12_DRAFT_PR_URL="$(stage12_read_draft_pr_url)"
   printf '  proof/stage1-head-sha.txt\n'
   printf '  proof/stage1-origin-sha.txt\n'
   printf '  proof/stage2-nokey.txt\n'
+  printf '  proof/stage3-token-budget.json\n'
   printf '  proof/stage3-governor-output.txt\n'
+  printf '  proof/stage5-token-budget.json\n'
   printf '  proof/stage5-codex-output.txt\n'
   printf '  proof/stage6-scope.txt\n'
   printf '  proof/stage7-validation-output.txt\n'

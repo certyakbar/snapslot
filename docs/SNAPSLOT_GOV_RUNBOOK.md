@@ -175,9 +175,9 @@ The sole argument is the full Governor prompt text passed verbatim to `claude -p
 
 - **Stage 1 — Repo Re-Anchor**: fetches `origin/main`; verifies HEAD is on `main` and equals `origin/main`; checks for source working-tree modifications (permits `node_modules/` and `package-lock.json` WSL noise only); verifies `ops/GOVERNOR_APPROVAL.json` has `"verdict": "NONE"`; confirms required governance docs are readable. 
 - **Stage 2 — No-Key Preflight**: stops if any `OPENAI_API_KEY`, `CODEX_API_KEY`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_API_KEY`, or any `OPENAI_*`/`ANTHROPIC_*` billing-path variable is set in the environment; stops if `.env`, `.env.*`, or `.envrc` in repo root defines AI API key variables; stops if `.claude/settings.json` or `.claude/settings.local.json` contains `apiKeyHelper`. Emits `NO-KEY PREFLIGHT: PASS — no observable AI API key execution path detected` on clean pass.
-- **Stage 3 — Governor Invocation**: invokes `claude -p "<governor-prompt>"` and captures full output to `proof/stage3-governor-output.txt`. Stops if command fails or output is empty.
+- **Stage 3 — Governor Invocation**: runs a token-budget pre-check with the `governor_claude_pro_default` profile before Governor invocation and writes `proof/stage3-token-budget.json`; invokes `claude -p "<governor-prompt>"` and captures full output to `proof/stage3-governor-output.txt`. Stops if the pre-check fails, including hard-limit `FAIL` status, token-budget proof is missing or empty, command fails, or output is empty.
 - **Stage 4 — Governor Clearance Gate**: parses `proof/stage3-governor-output.txt` by checking the Governor block verdict phrase first with `grep -qF`, as a substring match anywhere in the file. It then requires `GOVERNOR VERDICT: CLEAR TO SCOPE` with `grep -qxF`, as an exact standalone full-line match. BLOCK check precedes CLEAR check, and both checks are fail-closed.
-- **Stage 5 — Codex Builder Invocation**: reads Governor output from Stage 3 and passes it verbatim as the governor-packet argument to `codex exec --full-auto --sandbox workspace-write "<governor-packet>"`. Captures output and exit code to `proof/stage5-codex-output.txt`. Stops on non-zero exit.
+- **Stage 5 — Codex Builder Invocation**: reads Governor output from Stage 3, runs a token-budget pre-check with the `builder_codex_default` profile against `proof/stage3-governor-output.txt` and writes `proof/stage5-token-budget.json`, then passes the Governor output verbatim as the governor-packet argument to `codex exec --full-auto --sandbox workspace-write "<governor-packet>"`. Captures output and exit code to `proof/stage5-codex-output.txt`. Stops if the pre-check fails, including hard-limit `FAIL` status, token-budget proof is missing or empty, or Codex exits non-zero.
 - **Stage 6 — Hard Scope Verification**: derives ALLOWED FILES from Governor output; combines `git diff --name-only HEAD` with `git ls-files --others --exclude-standard`; filters out `node_modules/` and `package-lock.json`; sorts and deduplicates; compares against ALLOWED FILES. Stops if actual diff is empty or if any actual file is not in ALLOWED FILES.
 - **Stage 7 — Packet Validation Commands**: extracts VALIDATION COMMANDS from Governor output; runs each in order; captures exact output to `proof/stage7-validation-output.txt`; stops on any non-zero exit.
 - **Stage 8 — Deterministic Repo Checks**: if active packet references typecheck or tests, runs `npx tsc --noEmit` and `npm test` and captures output to `proof/stage8-checks-output.txt`; otherwise logs skip.
@@ -196,7 +196,9 @@ Expected proof files after a successful run:
 - `proof/stage1-head-sha.txt`
 - `proof/stage1-origin-sha.txt`
 - `proof/stage2-nokey.txt`
+- `proof/stage3-token-budget.json`
 - `proof/stage3-governor-output.txt`
+- `proof/stage5-token-budget.json`
 - `proof/stage5-codex-output.txt`
 - `proof/stage6-scope.txt`
 - `proof/stage7-validation-output.txt`
@@ -227,7 +229,7 @@ STAGES 1-12 COMPLETE. Proof bundle at proof/. Operator/Governor review required 
 
 ### 10.6 Deferred stages
 
-T-GOV-24 full Stages 1-12 loop witness remains deferred. T-GOV-25 ledger update remains deferred. T-GOV-26 token/test-efficiency governance remains deferred and separate.
+T-GOV-24 full Stages 1-12 loop witness and T-GOV-25 ledger update are implemented. T-GOV-26 local offline token-budget enforcement is implemented; test-efficiency governance remains separate unless scoped by a later governed packet.
 
 ### 10.7 Packet list parser note
 
@@ -253,4 +255,4 @@ Implementation sequencing remains:
 4. T-GOV-24: Witness full Stages 1-12 loop execution.
 5. T-GOV-25: Ledger update for proven Stages 1-12.
 
-Token/test-efficiency governance remains deferred to T-GOV-26 and must not be bundled into the Stage 10-12 implementation or witness packets.
+T-GOV-26 local offline token-budget enforcement is implemented for the governed loop runner. Test-efficiency governance remains separate unless scoped by a later governed packet.

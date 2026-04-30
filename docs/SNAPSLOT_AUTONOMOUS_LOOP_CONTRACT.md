@@ -118,12 +118,14 @@ claude -p "<governor-prompt>"
 ```
 
 - The `<governor-prompt>` must instruct Claude to act as Governor, re-anchor to repo truth, and produce either an explicit Governor clearance with a complete scoped task packet, or an explicit Governor `BLOCK` with a stated blocking reason.
+- A local offline token-budget pre-check runs before the `claude -p` invocation using the `governor_claude_pro_default` profile and writes `proof/stage3-token-budget.json`. It fails closed before invocation if `measured_tokens` exceeds `hard_limit_tokens`.
 - `-p` runs non-interactively and exits after printing.
 - Claude's full output must be captured to a local proof file for inclusion in the PR body.
 - Pass: Governor output contains the explicit clearance signal and a complete scoped task packet.
 - Stop conditions:
   - Governor produces `BLOCK`
   - Governor output is ambiguous or lacks the clearance signal
+  - token-budget pre-check status is `FAIL`
   - Governor invocation fails or produces no output
 
 ### Stage 4 — Governor Clearance Gate
@@ -156,11 +158,13 @@ codex exec --full-auto --sandbox workspace-write "<executor-prompt>"
 ```
 
 - The `<executor-prompt>` is the scoped task packet produced by the Governor in Stage 3, read verbatim from `proof/stage3-governor-output.txt` and passed to Codex, not summarized or paraphrased.
+- A local offline token-budget pre-check runs against `proof/stage3-governor-output.txt` before the `codex exec` invocation using the `builder_codex_default` profile and writes `proof/stage5-token-budget.json`. It fails closed before invocation if `measured_tokens` exceeds `hard_limit_tokens`.
 - Codex may only modify or create files listed in the active packet's `ALLOWED FILES`.
 - Codex must not commit, push, stage, or self-approve in this stage. Those actions require separate explicit authorization in a future packet.
 - Pass: Codex exits `0` and reports files changed or created.
 - Stop conditions:
   - Codex exits non-zero
+  - token-budget pre-check status is `FAIL`
   - Codex reports touching forbidden files
   - Codex invocation fails
 
@@ -367,13 +371,15 @@ The proof bundle for every loop cycle must contain:
 1. Exact `git status --short` output at Stage 1.
 2. Exact `git rev-parse HEAD` and `git rev-parse origin/main` output at Stage 1.
 3. No-key preflight exit status and confirmation line, or the exact key/path name that caused a stop.
-4. Governor full output captured to file, not summarized.
-5. Exact Codex exit code and any Codex output.
-6. Exact combined tracked-plus-untracked scope diff after Codex, the full output of the Stage 6 check.
-7. Exact output of every validation command.
-8. Exact typecheck output and exact test suite output.
-9. Full Stage 11 command output in `proof/stage11-output.txt`.
-10. Draft PR URL after Stage 11 in `proof/stage11-draft-pr-url.txt`.
+4. Stage 3 token-budget proof in `proof/stage3-token-budget.json`.
+5. Governor full output captured to file, not summarized.
+6. Stage 5 token-budget proof in `proof/stage5-token-budget.json`.
+7. Exact Codex exit code and any Codex output.
+8. Exact combined tracked-plus-untracked scope diff after Codex, the full output of the Stage 6 check.
+9. Exact output of every validation command.
+10. Exact typecheck output and exact test suite output.
+11. Full Stage 11 command output in `proof/stage11-output.txt`.
+12. Draft PR URL after Stage 11 in `proof/stage11-draft-pr-url.txt`.
 
 No paraphrasing is allowed. No truncation is allowed unless the raw original has been captured. If raw capture was not possible for any item, the proof bundle is incomplete and Stage 9 must stop.
 
@@ -386,7 +392,7 @@ Stages 10-12 carry the T-GOV-19 proof-honesty observations forward as contract r
 - No mode-drift ambiguity: file mode must be explicitly captured and included in proof when relevant, including for `scripts/loop-runner.sh`.
 - Exact terminal output is required over summary claims.
 - Any contradiction between proof and current repo state must stop the loop and surface the blocker. The loop must fail closed.
-- Token/test-efficiency governance remains deferred to T-GOV-26 and must not be bundled into T-GOV-21, T-GOV-22, T-GOV-23, T-GOV-24, or T-GOV-25.
+- T-GOV-26 implemented local offline token-budget enforcement for the Stage 3 Governor prompt and Stage 5 Builder packet. Test-efficiency governance remains separate unless scoped by a later governed packet.
 
 ### 8.2 Draft PR Body Requirements
 
@@ -430,7 +436,7 @@ The loop must never:
 24. Retry without a new Governor-cleared corrective packet authorizing the retry.
 25. Claim that Stage 2 preflight certifies the absence of keys outside the shell environment, outside repo-tracked files, and outside the config paths the preflight reads.
 26. Treat Stage 10 or Stage 11 as implemented before T-GOV-21 and T-GOV-22 complete with proof, or treat Stage 12 as implemented before T-GOV-23 completes with proof.
-27. Bundle token/test-efficiency governance into the Stage 10-12 implementation sequence before T-GOV-26.
+27. Bundle additional token/test-efficiency governance into the loop without a new governed packet after T-GOV-26.
 28. Introduce mark-ready automation, auto-approval, auto-merge, direct Governor approval manifest edits, Sentinel bypass, or blind rerun after failure as a permitted capability.
 
 ## 10. Versioning and Change Control
@@ -446,6 +452,6 @@ The Stage 10-12 implementation sequence is fixed unless a later governed packet 
 3. T-GOV-23: Implement Stage 12 stop/report handoff only. Status: implemented in `scripts/loop-runner.sh`.
 4. T-GOV-24: Witness full Stages 1-12 loop execution.
 5. T-GOV-25: Ledger update for proven Stages 1-12.
-6. T-GOV-26: Token/test-efficiency governance remains deferred and separate.
+6. T-GOV-26: Local offline token-budget enforcement implemented for the governed loop runner.
 
 This contract does not implement the loop. It defines the approved design boundary that later implementation packets may cite.
