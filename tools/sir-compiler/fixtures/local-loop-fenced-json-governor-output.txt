@@ -1,0 +1,40 @@
+GOVERNOR VERDICT: CLEAR TO SCOPE
+
+SNAPSLOT_LOCAL_LOOP_PACKET_JSON_BEGIN
+```json
+{
+  "schema_version": "local-loop-packet.v1",
+  "task_id": "T-GOV-29-PRE-COMPILER-GATE-FENCED-FIXTURE",
+  "risk_level": "HIGH",
+  "allowed_files": [
+    "scripts/loop-runner.sh"
+  ],
+  "forbidden_files": [
+    "docs/SNAPSLOT_ACCEPTANCE_LEDGER.md"
+  ],
+  "required_behavior": [
+    "Strip one optional outer markdown JSON fence."
+  ],
+  "forbidden_behavior": [
+    "Do not accept nested fences."
+  ],
+  "validation_commands": [
+    {
+      "id": "grep_literal",
+      "argv": [
+        "-qF",
+        "local-loop-preflight",
+        "scripts/loop-runner.sh"
+      ]
+    }
+  ],
+  "stop_rule": [
+    "Stop if fenced JSON fails solely because of one outer fence."
+  ],
+  "return_format": [
+    "Return exact validation proof."
+  ],
+  "ledger_update_required": "NONE"
+}
+```
+SNAPSLOT_LOCAL_LOOP_PACKET_JSON_END

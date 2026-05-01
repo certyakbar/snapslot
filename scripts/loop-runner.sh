@@ -4,7 +4,8 @@ set -euo pipefail
 GOVERNOR_PROMPT="${1:?Usage: scripts/loop-runner.sh \"<governor-prompt>\"}"
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-PROOF_DIR="${REPO_ROOT}/proof"
+RUN_ID="$(node -e "process.stdout.write(require('crypto').randomUUID())")"
+PROOF_DIR="${REPO_ROOT}/proof/runs/${RUN_ID}"
 mkdir -p "${PROOF_DIR}"
 
 loop_stop() {
@@ -53,6 +54,9 @@ parse_packet_list() {
     }
   ' "${source_file}"
 }
+
+# Deprecated rollback/debug parser only. Future execution authority is the
+# compiler-normalized local-loop JSON packet produced in Stage 4b.
 
 collect_changed_files() {
   { git diff --name-only HEAD; git ls-files --others --exclude-standard; } \
@@ -163,17 +167,53 @@ if ! grep -qxF 'GOVERNOR VERDICT: CLEAR TO SCOPE' "${GOV_OUTPUT_FILE}"; then
     "GOVERNOR VERDICT: CLEAR TO SCOPE not found in ${GOV_OUTPUT_FILE}"
 fi
 
+# Stage 4b — Compiler-Backed Local-Loop Packet Extraction and Validation
+LOCAL_LOOP_PACKET_FILE="${PROOF_DIR}/stage4b-normalized-local-loop-packet.json"
+CODEX_PACKET_FILE="${PROOF_DIR}/stage4b-normalized-codex-packet.json"
+NORMALIZED_TASK_ID_FILE="${PROOF_DIR}/stage4b-task-id.txt"
+NORMALIZED_RISK_LEVEL_FILE="${PROOF_DIR}/stage4b-risk-level.txt"
+NORMALIZED_ALLOWED_FILES_FILE="${PROOF_DIR}/stage4b-allowed-files.txt"
+NORMALIZED_FORBIDDEN_FILES_FILE="${PROOF_DIR}/stage4b-forbidden-files.txt"
+NORMALIZED_VALIDATION_COMMANDS_FILE="${PROOF_DIR}/stage4b-validation-commands.json"
+
+if ! node --loader ts-node/esm "${REPO_ROOT}/tools/sir-compiler/src/index.ts" \
+  --local-loop-preflight "${GOV_OUTPUT_FILE}" \
+  --output "${LOCAL_LOOP_PACKET_FILE}"; then
+  loop_stop "4b" "local-loop packet compiler validation failed" "see ${LOCAL_LOOP_PACKET_FILE}"
+fi
+[[ -s "${LOCAL_LOOP_PACKET_FILE}" ]] || \
+  loop_stop "4b" "normalized local-loop packet missing or empty" "${LOCAL_LOOP_PACKET_FILE}"
+
+cp "${LOCAL_LOOP_PACKET_FILE}" "${CODEX_PACKET_FILE}"
+node -e "const p=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')); process.stdout.write(p.task_id + '\n');" "${LOCAL_LOOP_PACKET_FILE}" > "${NORMALIZED_TASK_ID_FILE}"
+node -e "const p=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')); process.stdout.write(p.risk_level + '\n');" "${LOCAL_LOOP_PACKET_FILE}" > "${NORMALIZED_RISK_LEVEL_FILE}"
+node -e "const p=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')); process.stdout.write(p.allowed_files.join('\n') + '\n');" "${LOCAL_LOOP_PACKET_FILE}" > "${NORMALIZED_ALLOWED_FILES_FILE}"
+node -e "const p=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')); process.stdout.write(p.forbidden_files.join('\n') + '\n');" "${LOCAL_LOOP_PACKET_FILE}" > "${NORMALIZED_FORBIDDEN_FILES_FILE}"
+node -e "const p=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')); process.stdout.write(JSON.stringify(p.validation_commands, null, 2) + '\n');" "${LOCAL_LOOP_PACKET_FILE}" > "${NORMALIZED_VALIDATION_COMMANDS_FILE}"
+
+for stage4b_artifact in \
+  "${CODEX_PACKET_FILE}" \
+  "${NORMALIZED_TASK_ID_FILE}" \
+  "${NORMALIZED_RISK_LEVEL_FILE}" \
+  "${NORMALIZED_ALLOWED_FILES_FILE}" \
+  "${NORMALIZED_FORBIDDEN_FILES_FILE}" \
+  "${NORMALIZED_VALIDATION_COMMANDS_FILE}"
+do
+  [[ -s "${stage4b_artifact}" ]] || \
+    loop_stop "4b" "normalized local-loop artifact missing or empty" "${stage4b_artifact}"
+done
+
 # Stage 5 — Codex Builder Invocation
 CODEX_OUTPUT_FILE="${PROOF_DIR}/stage5-codex-output.txt"
-GOVERNOR_PACKET="$(cat "${GOV_OUTPUT_FILE}")"
+CODEX_PACKET="$(cat "${CODEX_PACKET_FILE}")"
 STAGE5_TOKEN_BUDGET_FILE="${PROOF_DIR}/stage5-token-budget.json"
-if ! "${REPO_ROOT}/scripts/token-budget-check.sh" "${GOV_OUTPUT_FILE}" builder_codex_default "${STAGE5_TOKEN_BUDGET_FILE}"; then
+if ! "${REPO_ROOT}/scripts/token-budget-check.sh" "${CODEX_PACKET_FILE}" builder_codex_default "${STAGE5_TOKEN_BUDGET_FILE}"; then
   loop_stop 5 "Builder packet token-budget pre-check failed" "${STAGE5_TOKEN_BUDGET_FILE}"
 fi
 [[ -s "${STAGE5_TOKEN_BUDGET_FILE}" ]] || \
   loop_stop 5 "Builder packet token-budget proof missing or empty" "${STAGE5_TOKEN_BUDGET_FILE}"
 set +e
-codex exec --full-auto --sandbox workspace-write "${GOVERNOR_PACKET}" > "${CODEX_OUTPUT_FILE}" 2>&1
+codex exec --full-auto --sandbox workspace-write "${CODEX_PACKET}" > "${CODEX_OUTPUT_FILE}" 2>&1
 CODEX_EXIT=$?
 set -e
 if [[ "${CODEX_EXIT}" -ne 0 ]]; then
@@ -181,9 +221,9 @@ if [[ "${CODEX_EXIT}" -ne 0 ]]; then
 fi
 
 # Stage 6 — Hard Scope Verification
-ALLOWED_FILES="$(parse_packet_list 'ALLOWED FILES' "${GOV_OUTPUT_FILE}" | sort -u)"
+ALLOWED_FILES="$(cat "${NORMALIZED_ALLOWED_FILES_FILE}")"
 [[ -n "${ALLOWED_FILES}" ]] || \
-  loop_stop 6 "ALLOWED FILES list empty or absent" "${GOV_OUTPUT_FILE}"
+  loop_stop 6 "normalized allowed files list empty or absent" "${NORMALIZED_ALLOWED_FILES_FILE}"
 
 CHANGED_FILES="$(collect_changed_files)"
 
@@ -207,23 +247,17 @@ done <<< "${CHANGED_FILES}"
 # Stage 7 — Packet Validation Commands
 VALIDATION_OUTPUT_FILE="${PROOF_DIR}/stage7-validation-output.txt"
 : > "${VALIDATION_OUTPUT_FILE}"
-VALIDATION_COMMANDS="$(parse_packet_list 'VALIDATION COMMANDS' "${GOV_OUTPUT_FILE}")"
-
-if [[ -z "${VALIDATION_COMMANDS}" ]]; then
-  printf 'Stage 7: no VALIDATION COMMANDS in packet — skipping\n' > "${VALIDATION_OUTPUT_FILE}"
-else
-  while IFS= read -r validation_command; do
-    [[ -z "${validation_command}" ]] && continue
-    printf -- '--- CMD: %s\n' "${validation_command}" >> "${VALIDATION_OUTPUT_FILE}"
-    bash -lc "${validation_command}" >> "${VALIDATION_OUTPUT_FILE}" 2>&1 || \
-      loop_stop 7 "Validation command failed" "${validation_command}"
-  done <<< "${VALIDATION_COMMANDS}"
+if ! node --loader ts-node/esm "${REPO_ROOT}/tools/sir-compiler/src/index.ts" \
+  --local-loop-command-runner \
+  --packet "${LOCAL_LOOP_PACKET_FILE}" \
+  >> "${VALIDATION_OUTPUT_FILE}" 2>&1; then
+  loop_stop 7 "registry-backed validation command failed" "see ${VALIDATION_OUTPUT_FILE}"
 fi
 
 # Stage 8 — Deterministic Repo Checks
 CHECKS_FILE="${PROOF_DIR}/stage8-checks-output.txt"
 : > "${CHECKS_FILE}"
-if grep -Eq 'typecheck|tsc|npm test' "${GOV_OUTPUT_FILE}"; then
+if grep -Eq 'typecheck|tsc|npm test' "${CODEX_PACKET_FILE}"; then
   echo "--- typecheck ---" >> "${CHECKS_FILE}"
   npx tsc --noEmit >> "${CHECKS_FILE}" 2>&1 || loop_stop 8 "typecheck failed" "see ${CHECKS_FILE}"
   echo "--- npm test ---" >> "${CHECKS_FILE}"
@@ -234,19 +268,26 @@ fi
 
 # Stage 9 — Proof Output Collection
 for proof_file in \
-  "proof/stage1-git-status.txt" \
-  "proof/stage1-head-sha.txt" \
-  "proof/stage1-origin-sha.txt" \
-  "proof/stage2-nokey.txt" \
-  "proof/stage3-token-budget.json" \
-  "proof/stage3-governor-output.txt" \
-  "proof/stage5-token-budget.json" \
-  "proof/stage5-codex-output.txt" \
-  "proof/stage6-scope.txt" \
-  "proof/stage7-validation-output.txt" \
-  "proof/stage8-checks-output.txt"
+  "${PROOF_DIR}/stage1-git-status.txt" \
+  "${PROOF_DIR}/stage1-head-sha.txt" \
+  "${PROOF_DIR}/stage1-origin-sha.txt" \
+  "${PROOF_DIR}/stage2-nokey.txt" \
+  "${PROOF_DIR}/stage3-token-budget.json" \
+  "${PROOF_DIR}/stage3-governor-output.txt" \
+  "${PROOF_DIR}/stage4b-normalized-local-loop-packet.json" \
+  "${PROOF_DIR}/stage4b-normalized-codex-packet.json" \
+  "${PROOF_DIR}/stage4b-task-id.txt" \
+  "${PROOF_DIR}/stage4b-risk-level.txt" \
+  "${PROOF_DIR}/stage4b-allowed-files.txt" \
+  "${PROOF_DIR}/stage4b-forbidden-files.txt" \
+  "${PROOF_DIR}/stage4b-validation-commands.json" \
+  "${PROOF_DIR}/stage5-token-budget.json" \
+  "${PROOF_DIR}/stage5-codex-output.txt" \
+  "${PROOF_DIR}/stage6-scope.txt" \
+  "${PROOF_DIR}/stage7-validation-output.txt" \
+  "${PROOF_DIR}/stage8-checks-output.txt"
 do
-  [[ -f "${REPO_ROOT}/${proof_file}" ]] || \
+  [[ -f "${proof_file}" ]] || \
     loop_stop 9 "Expected proof file missing" "${proof_file}"
 done
 
@@ -320,21 +361,15 @@ stage10_format_files_markdown() {
   done
 }
 
-STAGE10_ALLOWED_FILES="$(stage10_capture "allowed-files" parse_packet_list 'ALLOWED FILES' "${GOV_OUTPUT_FILE}")"
+STAGE10_ALLOWED_FILES="$(cat "${NORMALIZED_ALLOWED_FILES_FILE}")"
 [[ -n "${STAGE10_ALLOWED_FILES}" ]] || \
-  loop_stop 10 "Stage 10 ALLOWED FILES list empty or absent" "${GOV_OUTPUT_FILE}"
+  loop_stop 10 "Stage 10 normalized allowed files list empty or absent" "${NORMALIZED_ALLOWED_FILES_FILE}"
 
-STAGE10_TASK_ID="$(stage10_trim "$(stage10_capture "task-id" parse_packet_scalar 'TASK ID' "${GOV_OUTPUT_FILE}")")"
-if [[ -z "${STAGE10_TASK_ID}" ]]; then
-  STAGE10_TASK_ID="$(stage10_trim "$(stage10_capture "task-id-alt" parse_packet_scalar 'task_id' "${GOV_OUTPUT_FILE}")")"
-fi
+STAGE10_TASK_ID="$(stage10_trim "$(<"${NORMALIZED_TASK_ID_FILE}")")"
 [[ -n "${STAGE10_TASK_ID}" ]] || \
-  loop_stop 10 "Stage 10 task_id parse missing" "${GOV_OUTPUT_FILE}"
+  loop_stop 10 "Stage 10 normalized task_id missing" "${NORMALIZED_TASK_ID_FILE}"
 
-STAGE10_RISK_LEVEL="$(stage10_trim "$(stage10_capture "risk-level" parse_packet_scalar 'RISK' "${GOV_OUTPUT_FILE}")")"
-if [[ -z "${STAGE10_RISK_LEVEL}" ]]; then
-  STAGE10_RISK_LEVEL="$(stage10_trim "$(stage10_capture "risk-level-alt" parse_packet_scalar 'risk_level' "${GOV_OUTPUT_FILE}")")"
-fi
+STAGE10_RISK_LEVEL="$(stage10_trim "$(<"${NORMALIZED_RISK_LEVEL_FILE}")")"
 case "${STAGE10_RISK_LEVEL}" in
   CRITICAL|HIGH|MEDIUM|LOW) ;;
   *)
@@ -534,14 +569,14 @@ printf '%s\n' "${STAGE11_PR_URL}" > "${STAGE11_PR_URL_FILE}" || \
 STAGE12_HANDOFF_FILE="${PROOF_DIR}/stage12-handoff.txt"
 
 for stage12_required_proof_file in \
-  "proof/stage11-draft-pr-url.txt" \
-  "proof/stage11-output.txt" \
-  "proof/stage10-proof-summary.txt" \
-  "proof/stage6-scope.txt" \
-  "proof/stage7-validation-output.txt" \
-  "proof/stage8-checks-output.txt"
+  "${PROOF_DIR}/stage11-draft-pr-url.txt" \
+  "${PROOF_DIR}/stage11-output.txt" \
+  "${PROOF_DIR}/stage10-proof-summary.txt" \
+  "${PROOF_DIR}/stage6-scope.txt" \
+  "${PROOF_DIR}/stage7-validation-output.txt" \
+  "${PROOF_DIR}/stage8-checks-output.txt"
 do
-  [[ -s "${REPO_ROOT}/${stage12_required_proof_file}" ]] || \
+  [[ -s "${stage12_required_proof_file}" ]] || \
     loop_stop 12 "Required Stage 12 proof prerequisite missing or empty" "${stage12_required_proof_file}"
 done
 
@@ -565,27 +600,34 @@ STAGE12_DRAFT_PR_URL="$(stage12_read_draft_pr_url)"
   printf 'Proof bundle path: %s\n' "${PROOF_DIR}"
   printf '\n'
   printf 'Proof files included:\n'
-  printf '  proof/stage1-git-status.txt\n'
-  printf '  proof/stage1-head-sha.txt\n'
-  printf '  proof/stage1-origin-sha.txt\n'
-  printf '  proof/stage2-nokey.txt\n'
-  printf '  proof/stage3-token-budget.json\n'
-  printf '  proof/stage3-governor-output.txt\n'
-  printf '  proof/stage5-token-budget.json\n'
-  printf '  proof/stage5-codex-output.txt\n'
-  printf '  proof/stage6-scope.txt\n'
-  printf '  proof/stage7-validation-output.txt\n'
-  printf '  proof/stage8-checks-output.txt\n'
-  printf '  proof/stage10-pr-body.md\n'
-  printf '  proof/stage10-proof-summary.txt\n'
-  printf '  proof/stage11-output.txt\n'
-  printf '  proof/stage11-draft-pr-url.txt\n'
+  printf '  proof/runs/%s/stage1-git-status.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage1-head-sha.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage1-origin-sha.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage2-nokey.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage3-token-budget.json\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage3-governor-output.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage4b-normalized-local-loop-packet.json\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage4b-normalized-codex-packet.json\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage4b-task-id.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage4b-risk-level.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage4b-allowed-files.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage4b-forbidden-files.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage4b-validation-commands.json\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage5-token-budget.json\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage5-codex-output.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage6-scope.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage7-validation-output.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage8-checks-output.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage10-pr-body.md\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage10-proof-summary.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage11-output.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage11-draft-pr-url.txt\n' "${RUN_ID}"
   printf '\n'
   printf 'Changed-file summary:\n'
   awk '/^changed_files:/{flag=1;next} flag{print}' "${PROOF_DIR}/stage10-proof-summary.txt"
   printf '\n'
-  printf 'Validation summary reference: proof/stage7-validation-output.txt\n'
-  printf 'Checks summary reference: proof/stage8-checks-output.txt\n'
+  printf 'Validation summary reference: proof/runs/%s/stage7-validation-output.txt\n' "${RUN_ID}"
+  printf 'Checks summary reference: proof/runs/%s/stage8-checks-output.txt\n' "${RUN_ID}"
   printf '\n'
   printf 'Governor final review is required before any ready or merge action.\n'
   printf 'Operator must keep the PR draft until Governor APPROVE FOR MERGE and Sentinel PASS are both present.\n'
@@ -600,4 +642,4 @@ printf '\n'
 cat "${STAGE12_HANDOFF_FILE}"
 printf '\n'
 
-printf 'STAGES 1-12 COMPLETE. Proof bundle at proof/. Operator/Governor review required before ready or merge.\n'
+printf 'STAGES 1-12 COMPLETE. Proof bundle at proof/runs/%s/. Operator/Governor review required before ready or merge.\n' "${RUN_ID}"

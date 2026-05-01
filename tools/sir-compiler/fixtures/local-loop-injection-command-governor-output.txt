@@ -1,0 +1,38 @@
+GOVERNOR VERDICT: CLEAR TO SCOPE
+
+SNAPSLOT_LOCAL_LOOP_PACKET_JSON_BEGIN
+{
+  "schema_version": "local-loop-packet.v1",
+  "task_id": "T-GOV-29-PRE-COMPILER-GATE-INJECTION-FIXTURE",
+  "risk_level": "HIGH",
+  "allowed_files": [
+    "scripts/loop-runner.sh"
+  ],
+  "forbidden_files": [
+    "docs/SNAPSLOT_ACCEPTANCE_LEDGER.md"
+  ],
+  "required_behavior": [
+    "Reject shell metacharacters before command execution."
+  ],
+  "forbidden_behavior": [
+    "Do not pass injection payloads to bash."
+  ],
+  "validation_commands": [
+    {
+      "id": "grep_literal",
+      "argv": [
+        "-qF",
+        "unsafe $() `whoami`; payload",
+        "scripts/loop-runner.sh"
+      ]
+    }
+  ],
+  "stop_rule": [
+    "Stop if the injection command is accepted."
+  ],
+  "return_format": [
+    "Return rejection proof."
+  ],
+  "ledger_update_required": "NONE"
+}
+SNAPSLOT_LOCAL_LOOP_PACKET_JSON_END

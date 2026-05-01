@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://snapslot.local/schemas/local-loop-packet.schema.json",
+  "title": "SnapSlot Local Loop Packet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "risk_level",
+    "allowed_files",
+    "forbidden_files",
+    "required_behavior",
+    "forbidden_behavior",
+    "validation_commands",
+    "stop_rule",
+    "return_format",
+    "ledger_update_required"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "local-loop-packet.v1"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    },
+    "allowed_files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "https://snapslot.local/schemas/sir-base.json#/$defs/file_path"
+      }
+    },
+    "forbidden_files": {
+      "type": "array",
+      "items": {
+        "$ref": "https://snapslot.local/schemas/sir-base.json#/$defs/file_path"
+      }
+    },
+    "required_behavior": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "forbidden_behavior": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "validation_commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "argv"],
+        "properties": {
+          "id": {
+            "const": "grep_literal"
+          },
+          "argv": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "prefixItems": [
+              {
+                "const": "-qF"
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "https://snapslot.local/schemas/sir-base.json#/$defs/file_path"
+              }
+            ],
+            "items": false
+          }
+        }
+      }
+    },
+    "stop_rule": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "return_format": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "ledger_update_required": {
+      "const": "NONE"
+    }
+  }
+}

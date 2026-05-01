@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { checkContextBudget, attachContextEscalation } from "./context-budget.js";
 import { readRepoState, type RepoState } from "./dirty-classifier.js";
@@ -13,14 +13,42 @@ import {
   writeAtomicJson
 } from "./transport.js";
 import { runNoSecretPreflight } from "./preflight.js";
+import { compileLocalLoopPacketFile } from "./local-loop-packet.js";
+import { mainLocalLoopCommandRunner } from "./local-loop-command-runner.js";
 import type { EmitEnvelope, SirEnvelope, TransportEnvelope } from "./types.js";
 
 interface CliArgs {
-  input: string;
-  output: string;
+  mode: "sir" | "local-loop-preflight" | "local-loop-command-runner";
+  input?: string;
+  output?: string;
+  packet?: string;
 }
 
 function parseArgs(argv: string[]): CliArgs {
+  if (argv.includes("--local-loop-command-runner")) {
+    const packetIndex = argv.indexOf("--packet");
+    if (packetIndex === -1 || !argv[packetIndex + 1]) {
+      throw new Error("usage: sir-compiler --local-loop-command-runner --packet <path>");
+    }
+    return {
+      mode: "local-loop-command-runner",
+      packet: argv[packetIndex + 1]
+    };
+  }
+
+  if (argv.includes("--local-loop-preflight")) {
+    const preflightIndex = argv.indexOf("--local-loop-preflight");
+    const outputIndex = argv.indexOf("--output");
+    if (!argv[preflightIndex + 1] || outputIndex === -1 || !argv[outputIndex + 1]) {
+      throw new Error("usage: sir-compiler --local-loop-preflight <governor-output-path> --output <path>");
+    }
+    return {
+      mode: "local-loop-preflight",
+      input: argv[preflightIndex + 1],
+      output: argv[outputIndex + 1]
+    };
+  }
+
   const inputIndex = argv.indexOf("--input");
   const outputIndex = argv.indexOf("--output");
 
@@ -29,6 +57,7 @@ function parseArgs(argv: string[]): CliArgs {
   }
 
   return {
+    mode: "sir",
     input: argv[inputIndex + 1],
     output: argv[outputIndex + 1]
   };
@@ -139,8 +168,29 @@ function exitCodeFor(envelope: SirEnvelope): 0 | 1 | 2 {
 function main(): void {
   try {
     const args = parseArgs(process.argv.slice(2));
+    if (args.mode === "local-loop-command-runner") {
+      void mainLocalLoopCommandRunner(process.argv.slice(2)).catch((error) => {
+        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.exitCode = 2;
+      });
+      return;
+    }
+
+    if (args.mode === "local-loop-preflight") {
+      try {
+        const packet = compileLocalLoopPacketFile(args.input ?? "");
+        writeFileSync(resolve(args.output ?? ""), `${JSON.stringify(packet, null, 2)}\n`);
+        process.exitCode = 0;
+      } catch (error) {
+        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.exitCode = 1;
+      }
+      return;
+    }
+
     const initialRepoState = readRepoState();
-    const input = readJson(args.input);
+    const outputPath = args.output ?? "";
+    const input = readJson(args.input ?? "");
     const output = compileInput(input, initialRepoState);
     const exitCode = exitCodeFor(output);
 
@@ -152,12 +202,12 @@ function main(): void {
     const finalRepoState = readRepoState();
     if (finalRepoState.head_sha !== initialRepoState.head_sha) {
       const movedOutput = repoMovedBlock(input, "repo HEAD changed before final write");
-      writeAtomicJson(args.output, movedOutput);
+      writeAtomicJson(outputPath, movedOutput);
       process.exitCode = 1;
       return;
     }
 
-    writeAtomicJson(args.output, output);
+    writeAtomicJson(outputPath, output);
     process.exitCode = exitCode;
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
