@@ -32,8 +32,18 @@ export function createSchemaValidator(): Ajv2020 {
   ajv.addSchema(readSchema("schemas/sir-base.json"));
   ajv.addSchema(readSchema("schemas/sir-emit.json"));
   ajv.addSchema(readSchema("schemas/sir-block.json"));
+  ajv.addSchema(readSchema("schemas/sir-transport.json"));
 
   return ajv;
+}
+
+export function validateTransportEnvelope(value: unknown): ValidationResult {
+  const ajv = createSchemaValidator();
+  const valid = ajv.validate("https://snapslot.local/schemas/sir-transport.json", value);
+  return {
+    valid,
+    errors: formatAjvErrors(ajv.errors)
+  };
 }
 
 export function validateEmitEnvelope(value: unknown): ValidationResult {

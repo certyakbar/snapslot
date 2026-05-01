@@ -1,0 +1,10 @@
+{
+  "protocol": "sir-transport.v1",
+  "repo_anchor": {
+    "branch": "main",
+    "head_sha": "0fa1367666f79e52d3b3f4c8bfcea15cd5031483",
+    "dirty_allowed": true
+  },
+  "payload_sha256": "0262ba7517d6148790e00cdecd7f86850f9163cfc2ff8e1e5e61ef4e89d60e49",
+  "payload": "{\n  \"schema_version\": \"sir.v1\",\n  \"result_type\": \"BLOCK\",\n  \"repo_anchor\": {\n    \"branch\": \"main\",\n    \"head_sha\": \"644973a6b6e0db078a51e43d81463d4b8d37f10a\"\n  },\n  \"intent\": {\n    \"task_id\": \"T-GOV-28-CORE\",\n    \"summary\": \"Block unsafe compiler input.\",\n    \"actor_surface\": \"INTERNAL\"\n  },\n  \"compiler_audit\": {\n    \"block_code\": \"SCHEMA_VALIDATION_FAILED\",\n    \"warnings\": [],\n    \"errors\": [\n      \"input result_type is missing\"\n    ]\n  },\n  \"blocks\": [\n    {\n      \"code\": \"SCHEMA_VALIDATION_FAILED\",\n      \"message\": \"input result_type is missing\"\n    }\n  ],\n  \"warnings\": []\n}"
+}

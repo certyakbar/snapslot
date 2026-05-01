@@ -5,6 +5,10 @@ export type BlockCode =
   | "SEMANTIC_VALIDATION_FAILED"
   | "COMMAND_REJECTED"
   | "CONTEXT_BUDGET_EXCEEDED"
+  | "CHECKSUM_MISMATCH"
+  | "REPO_MOVED_DURING_COMPILE"
+  | "DIRTY_REPO_STATE"
+  | "SECRET_PREFLIGHT_FAILED"
   | "COMPILER_RUNTIME_FAILURE";
 
 export interface CommandObject {
@@ -95,6 +99,17 @@ export interface BlockEnvelope {
 }
 
 export type SirEnvelope = EmitEnvelope | BlockEnvelope;
+
+export interface TransportEnvelope {
+  protocol: "sir-transport.v1";
+  repo_anchor: RepoAnchor;
+  payload_sha256: string;
+  payload: string;
+  context_budget?: {
+    max_tokens: number;
+    tokenizer?: "gpt-tokenizer";
+  };
+}
 
 export interface ValidationResult {
   valid: boolean;

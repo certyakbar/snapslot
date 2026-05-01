@@ -1,0 +1,14 @@
+{
+  "protocol": "sir-transport.v1",
+  "repo_anchor": {
+    "branch": "main",
+    "head_sha": "0fa1367666f79e52d3b3f4c8bfcea15cd5031483",
+    "dirty_allowed": true
+  },
+  "payload_sha256": "c4f183bee0cb4d5a1994628ae847984dc09b6a75b5f0ce2d82eb778dc11477f4",
+  "payload": "{\n  \"schema_version\": \"sir.v1\",\n  \"result_type\": \"EMIT_CANDIDATE\",\n  \"task\": {\n    \"id\": \"T-GOV-28-CORE\",\n    \"name\": \"Implement isolated TypeScript/Node SIR compiler core\"\n  },\n  \"repo_anchor\": {\n    \"branch\": \"main\",\n    \"head_sha\": \"644973a6b6e0db078a51e43d81463d4b8d37f10a\",\n    \"dirty_allowed\": false\n  },\n  \"intent\": {\n    \"task_id\": \"T-GOV-28-CORE\",\n    \"summary\": \"Compile a local SIR candidate without transport or runner integration.\",\n    \"actor_surface\": \"INTERNAL\"\n  },\n  \"scope\": {\n    \"allowed_files\": [\n      \"schemas/sir-base.json\",\n      \"schemas/sir-emit.json\",\n      \"schemas/sir-block.json\",\n      \"registries/command-registry.json\",\n      \"tools/sir-compiler/src/index.ts\"\n    ],\n    \"forbidden_files\": [\n      \"package.json\",\n      \"package-lock.json\",\n      \"scripts/loop-runner.sh\"\n    ]\n  },\n  \"risk\": {\n    \"tier\": \"HIGH\",\n    \"notes\": [\n      \"Governance-only compiler core.\"\n    ]\n  },\n  \"validation\": {\n    \"commands\": [\n      {\n        \"id\": \"grep_literal\",\n        \"argv\": [\n          \"-qF\",\n          \"Ajv\",\n          \"tools/sir-compiler/src/schema-validator.ts\"\n        ]\n      }\n    ]\n  },\n  \"context\": {\n    \"files\": [\n      \"tools/sir-compiler/src/index.ts\",\n      \"tools/sir-compiler/src/schema-validator.ts\"\n    ]\n  },\n  \"governance\": {\n    \"workflow\": \"Governance-Only\",\n    \"docs_may_change\": false,\n    \"ledger_update_required\": false\n  },\n  \"compiler_audit\": {\n    \"warnings\": [],\n    \"errors\": []\n  }\n}",
+  "context_budget": {
+    "max_tokens": 1,
+    "tokenizer": "gpt-tokenizer"
+  }
+}
