@@ -1,15 +1,13 @@
 {
   "schema_version": "1",
-  "verdict": "APPROVE",
-  "governor_login": "certyakbar",
-  "pr_number": 90,
-  "approved_parent_sha": "3240d0dba9ee9b37ca9a32ddd3cb260e12a39534",
-  "approved_tree_sha": "8854bd277fa22a62c8e817f0c2ebe2411f45e581",
-  "risk_tier": "HIGH",
-  "task_id": "T-GOV-29-PRE-SCOPED-APPROVAL-READ-DIAGNOSTIC",
-  "declared_files": [
-    ".github/workflows/pr-sentinel.yml"
-  ],
-  "ledger_state": "NONE",
-  "issued_at": "2026-05-01T22:57:26.411Z"
+  "verdict": "NONE",
+  "governor_login": null,
+  "pr_number": null,
+  "approved_parent_sha": null,
+  "approved_tree_sha": null,
+  "risk_tier": null,
+  "task_id": null,
+  "declared_files": [],
+  "ledger_state": null,
+  "issued_at": null
 }
