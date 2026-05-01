@@ -42,11 +42,22 @@ const baselineCase = Object.freeze({
 });
 
 const fixtureCases = [
-  buildCase("no_approval_high_critical", {
+  buildCase("no_approval_high", {
     manifest_authority: { verdict: "NONE" },
     scoped_artifacts: [
       scopedArtifact({
         verdict: "NONE",
+      }),
+    ],
+    expected_outcome: OUTCOMES.FAIL,
+  }),
+  buildCase("no_approval_critical", {
+    risk_tier: "CRITICAL",
+    manifest_authority: { verdict: "NONE" },
+    scoped_artifacts: [
+      scopedArtifact({
+        verdict: "NONE",
+        risk_tier: "CRITICAL",
       }),
     ],
     expected_outcome: OUTCOMES.FAIL,
