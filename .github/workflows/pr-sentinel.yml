@@ -56,6 +56,9 @@ jobs:
             // Only verdict comments from this GitHub login are accepted.
             // c.user.login is controlled by GitHub and cannot be spoofed.
             const GOVERNOR_LOGIN = 'certyakbar';
+            const SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS = [
+              'github-actions[bot]',
+            ];
 
             // ── Validation results ─────────────────────────────────────────
             // Always from the reusable validate job outputs (pull_request path only).
@@ -303,6 +306,7 @@ jobs:
 
             let parsedManifest   = null;
             let manifestIssuedAt = null;
+            let latestBlockCreatedAt = null;
 
             // ── Step D1: Read and validate the approval manifest (CRITICAL/HIGH) ──
             if (governorCheckApplies) {
@@ -471,6 +475,7 @@ jobs:
                 const latestBlock     = blockComments[blockComments.length - 1];
                 const latestBlockTime = new Date(latestBlock.created_at).getTime();
                 const manifestTime    = manifestIssuedAt ? manifestIssuedAt.getTime() : 0;
+                latestBlockCreatedAt = latestBlock.created_at;
 
                 if (manifestTime > 0 && manifestTime > latestBlockTime) {
                   // Manifest was issued after the BLOCK — APPROVE stands
@@ -489,6 +494,207 @@ jobs:
                 governorPassed = false;
                 governorNote   = `BLOCK comment scan failed — failing closed: ${e.message}`;
               }
+            }
+
+            // ── Scoped approval diagnostic read (non-gating) ───────────────
+            // This runs only after the active Governor manifest/BLOCK path above.
+            // scoped approval comments are read for diagnostics only; they do
+            // not affect governorPassed, sentinelPassed, or allPassed.
+            const SCOPED_APPROVAL_BEGIN = 'SNAPSLOT_SCOPED_APPROVAL_STATE_BEGIN';
+            const SCOPED_APPROVAL_END = 'SNAPSLOT_SCOPED_APPROVAL_STATE_END';
+            let scopedApprovalDiagnosticStatus = 'indeterminate';
+            let scopedApprovalDiagnosticNote =
+              'Scoped approval diagnostic status: indeterminate; scoped approval comments are read for diagnostics only; scoped approval comments do not affect governorPassed; scoped approval comments do not affect sentinelPassed; global manifest remains authoritative';
+
+            function stripScopedApprovalCodeFences(artifactText) {
+              return artifactText
+                .trim()
+                .replace(/^```(?:json)?[ \t]*\r?\n?/i, '')
+                .replace(/\r?\n?```$/i, '')
+                .trim();
+            }
+
+            function extractScopedApprovalArtifact(commentBody) {
+              const beginIndex = commentBody.indexOf(SCOPED_APPROVAL_BEGIN);
+              if (beginIndex === -1) return null;
+              const artifactStart = beginIndex + SCOPED_APPROVAL_BEGIN.length;
+              const endIndex = commentBody.indexOf(SCOPED_APPROVAL_END, artifactStart);
+              if (endIndex === -1) return null;
+              return commentBody.slice(artifactStart, endIndex);
+            }
+
+            async function collectScopedApprovalComments() {
+              const scopedApprovalPagination = await github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                per_page: 100,
+              });
+              return scopedApprovalPagination;
+            }
+
+            try {
+              if (SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS.length === 0) {
+                throw new Error('SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS is empty');
+              }
+
+              const allScopedApprovalComments = await collectScopedApprovalComments();
+              const botAuthoredScopedApprovalComments = [];
+
+              for (const comment of allScopedApprovalComments) {
+                const commentBody = comment.body || '';
+                const artifactText = extractScopedApprovalArtifact(commentBody);
+                if (!artifactText) continue;
+
+                const scopedApprovalCommentAuthor = comment.user?.login;
+                if (!scopedApprovalCommentAuthor) {
+                  throw new Error('scoped approval comment author identity is missing');
+                }
+                if (!SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS.includes(scopedApprovalCommentAuthor)) {
+                  continue;
+                }
+
+                botAuthoredScopedApprovalComments.push({
+                  comment,
+                  artifactText,
+                  scopedApprovalCommentAuthor,
+                });
+              }
+
+              botAuthoredScopedApprovalComments.sort((a, b) =>
+                new Date(a.comment.created_at).getTime() - new Date(b.comment.created_at).getTime()
+              );
+
+              const latestScopedApprovalComment =
+                botAuthoredScopedApprovalComments[botAuthoredScopedApprovalComments.length - 1] || null;
+
+              if (!latestScopedApprovalComment) {
+                scopedApprovalDiagnosticStatus = 'absent';
+                scopedApprovalDiagnosticNote =
+                  'Scoped approval diagnostic status: absent; scoped approval comments use native Octokit pagination before diagnostic selection; scoped approval comment author must match the required bot identity; scoped approval comments are read for diagnostics only; scoped approval comments do not affect governorPassed; scoped approval comments do not affect sentinelPassed; global manifest remains authoritative';
+              } else {
+                let scopedApprovalPayload = null;
+                try {
+                  scopedApprovalPayload = JSON.parse(
+                    stripScopedApprovalCodeFences(latestScopedApprovalComment.artifactText)
+                  );
+                } catch (_) {
+                  scopedApprovalDiagnosticStatus = 'malformed';
+                }
+
+                if (scopedApprovalPayload) {
+                  const diagnosticIssues = [];
+                  const diagnosticScope = (Array.isArray(scopedApprovalPayload.declared_files)
+                    ? scopedApprovalPayload.declared_files
+                    : []
+                  ).filter(f => f !== MANIFEST_PATH);
+
+                  const diagnosticScopeMissing = changedFilesForScope.filter(f => !diagnosticScope.includes(f));
+                  const diagnosticScopePhantom = diagnosticScope.filter(f => !changedFilesForScope.includes(f));
+
+                  if (scopedApprovalPayload.storage_backend !== 'github_pr_comment') {
+                    diagnosticIssues.push('storage_backend must be github_pr_comment');
+                  }
+                  if (scopedApprovalPayload.repository_persistent !== false) {
+                    diagnosticIssues.push('repository_persistent must be false');
+                  }
+                  if (scopedApprovalPayload.authority !== 'diagnostic_only') {
+                    diagnosticIssues.push('authority must be diagnostic_only');
+                  }
+                  if (scopedApprovalPayload.pr_number !== context.issue.number) {
+                    diagnosticIssues.push('pr_number mismatch');
+                  }
+                  if (scopedApprovalPayload.governor_login !== GOVERNOR_LOGIN) {
+                    diagnosticIssues.push('scoped approval payload governor_login must match GOVERNOR_LOGIN');
+                  }
+                  if (scopedApprovalPayload.risk_tier !== riskLevel) {
+                    diagnosticIssues.push('risk_tier mismatch');
+                  }
+                  if (scopedApprovalPayload.task_id !== anchoredTaskId) {
+                    diagnosticIssues.push('task_id mismatch');
+                  }
+                  if (scopedApprovalPayload.ledger_state !== anchoredLedger) {
+                    diagnosticIssues.push('ledger_state mismatch');
+                  }
+                  if (diagnosticScopeMissing.length > 0 || diagnosticScopePhantom.length > 0) {
+                    diagnosticIssues.push('declared_files mismatch against changedFilesForScope');
+                  }
+
+                  const scopedIssuedAt = scopedApprovalPayload.issued_at
+                    ? new Date(scopedApprovalPayload.issued_at)
+                    : null;
+                  if (!scopedIssuedAt || Number.isNaN(scopedIssuedAt.getTime())) {
+                    diagnosticIssues.push('issued_at missing or invalid');
+                  }
+
+                  if (diagnosticIssues.length > 0) {
+                    scopedApprovalDiagnosticStatus = 'mismatched';
+                  } else {
+                    const { data: scopedHeadCommit } = await github.rest.git.getCommit({
+                      owner:      context.repo.owner,
+                      repo:       context.repo.repo,
+                      commit_sha: context.payload.pull_request.head.sha,
+                    });
+                    if (!scopedHeadCommit.parents || scopedHeadCommit.parents.length === 0) {
+                      scopedApprovalDiagnosticStatus = 'indeterminate';
+                      diagnosticIssues.push('PR HEAD commit has no parent');
+                    } else {
+                      const scopedParentSha = scopedHeadCommit.parents[0].sha;
+                      const { data: scopedParentCommit } = await github.rest.git.getCommit({
+                        owner:      context.repo.owner,
+                        repo:       context.repo.repo,
+                        commit_sha: scopedParentSha,
+                      });
+
+                      if (
+                        scopedApprovalPayload.approved_parent_sha !== scopedParentSha ||
+                        scopedApprovalPayload.approved_tree_sha !== scopedParentCommit.tree.sha
+                      ) {
+                        scopedApprovalDiagnosticStatus = 'stale';
+                      } else if (latestBlockCreatedAt) {
+                        const scopedIssuedTime = scopedIssuedAt.getTime();
+                        const latestBlockTime = new Date(latestBlockCreatedAt).getTime();
+                        if (scopedIssuedTime === latestBlockTime) {
+                          scopedApprovalDiagnosticStatus = 'blocked_by_equal_timestamp';
+                        } else if (scopedIssuedTime < latestBlockTime) {
+                          scopedApprovalDiagnosticStatus = 'stale';
+                        } else {
+                          scopedApprovalDiagnosticStatus = 'would pass';
+                        }
+                      } else {
+                        scopedApprovalDiagnosticStatus = 'would pass';
+                      }
+                    }
+                  }
+
+                  scopedApprovalDiagnosticNote =
+                    `Scoped approval diagnostic status: ${scopedApprovalDiagnosticStatus}; ` +
+                    `scoped approval comment author must match the required bot identity ` +
+                    `(${SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS.join(', ')}); ` +
+                    `scoped approval payload governor_login must match GOVERNOR_LOGIN; ` +
+                    `scoped approval comments use native Octokit pagination before diagnostic selection; ` +
+                    `scoped approval comments are read for diagnostics only; ` +
+                    `scoped approval comments do not affect governorPassed; ` +
+                    `scoped approval comments do not affect sentinelPassed; ` +
+                    `global manifest remains authoritative` +
+                    (diagnosticIssues.length > 0 ? `; diagnostic detail: ${diagnosticIssues.join('; ')}` : '');
+                } else {
+                  scopedApprovalDiagnosticNote =
+                    'Scoped approval diagnostic status: malformed; scoped approval comments use native Octokit pagination before diagnostic selection; scoped approval comment author must match the required bot identity; scoped approval payload governor_login must match GOVERNOR_LOGIN; scoped approval comments are read for diagnostics only; scoped approval comments do not affect governorPassed; scoped approval comments do not affect sentinelPassed; global manifest remains authoritative';
+                }
+              }
+            } catch (e) {
+              const scopedApprovalReadIndeterminate = e.message;
+              scopedApprovalDiagnosticStatus = 'indeterminate';
+              scopedApprovalDiagnosticNote =
+                `Scoped approval diagnostic status: indeterminate; scoped approval read diagnostic failed closed: ${scopedApprovalReadIndeterminate}; ` +
+                `scoped approval comments use native Octokit pagination before diagnostic selection; ` +
+                `scoped approval comment author must match the required bot identity; ` +
+                `scoped approval payload governor_login must match GOVERNOR_LOGIN; ` +
+                `scoped approval comments are read for diagnostics only; ` +
+                `scoped approval comments do not affect governorPassed; ` +
+                `scoped approval comments do not affect sentinelPassed; ` +
+                `global manifest remains authoritative`;
             }
 
             // ── Build check table ────────────────────────────────────────────
@@ -518,19 +724,10 @@ jobs:
               rows.push(['Governor verdict', '— N/A', governorNote]);
             }
 
-            // Scoped approval diagnostic only: non-gating future-state note.
-            // Do not change governorPassed or sentinelPassed semantics here.
-            // ops/GOVERNOR_APPROVAL.json remains the active authority; do not
-            // read or write scoped approval artifacts here. If file based scoped
-            // approval storage is added later, file based scoped approval storage
-            // requires garbage collection after merge, and repository-persistent
-            // scoped approval artifacts must not accumulate on main.
-            // Future scoped authority must fail closed on timestamp ties:
-            // timestamp equality fails closed.
             rows.push([
               'Scoped approval diagnostic',
               '— DIAGNOSTIC',
-              'non-gating; global manifest remains authoritative via `ops/GOVERNOR_APPROVAL.json`; scoped approval state is not yet authoritative; file based scoped approval storage requires garbage collection after merge; repository-persistent scoped approval artifacts must not accumulate on main; timestamp equality fails closed for future scoped approval authority',
+              scopedApprovalDiagnosticNote,
             ]);
 
             // ── Determine overall verdict ─────────────────────────────────
