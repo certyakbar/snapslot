@@ -1,17 +1,13 @@
 {
   "schema_version": "1",
-  "verdict": "APPROVE",
-  "governor_login": "certyakbar",
-  "pr_number": 86,
-  "approved_parent_sha": "1151915d71f062099f73d1896f1152034f5a5f6a",
-  "approved_tree_sha": "6d10e24f5a7ffc96edf1e946a5f2f8df120e9a47",
-  "risk_tier": "HIGH",
-  "task_id": "T-GOV-29-PRE-APPROVAL-STATE-RESOLVER",
-  "declared_files": [
-    "package.json",
-    "tests/approvalStateResolver.test.ts",
-    "tools/governance/approval-state-resolver.ts"
-  ],
-  "ledger_state": "NONE",
-  "issued_at": "2026-05-01T20:44:17.187Z"
+  "verdict": "NONE",
+  "governor_login": null,
+  "pr_number": null,
+  "approved_parent_sha": null,
+  "approved_tree_sha": null,
+  "risk_tier": null,
+  "task_id": null,
+  "declared_files": [],
+  "ledger_state": null,
+  "issued_at": null
 }
