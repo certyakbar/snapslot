@@ -33,8 +33,18 @@ export function createSchemaValidator(): Ajv2020 {
   ajv.addSchema(readSchema("schemas/sir-emit.json"));
   ajv.addSchema(readSchema("schemas/sir-block.json"));
   ajv.addSchema(readSchema("schemas/sir-transport.json"));
+  ajv.addSchema(readSchema("schemas/local-loop-packet.schema.json"));
 
   return ajv;
+}
+
+export function validateLocalLoopPacketSchema(value: unknown): ValidationResult {
+  const ajv = createSchemaValidator();
+  const valid = ajv.validate("https://snapslot.local/schemas/local-loop-packet.schema.json", value);
+  return {
+    valid,
+    errors: formatAjvErrors(ajv.errors)
+  };
 }
 
 export function validateTransportEnvelope(value: unknown): ValidationResult {

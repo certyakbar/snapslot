@@ -1,0 +1,40 @@
+GOVERNOR VERDICT: CLEAR TO SCOPE
+
+SNAPSLOT_LOCAL_LOOP_PACKET_JSON_BEGIN
+{
+  "schema_version": "local-loop-packet.v1",
+  "task_id": "T-GOV-29-PRE-COMPILER-GATE-FIXTURE",
+  "risk_level": "HIGH",
+  "allowed_files": [
+    "scripts/loop-runner.sh",
+    "tools/sir-compiler/src/local-loop-packet.ts"
+  ],
+  "forbidden_files": [
+    "docs/SNAPSLOT_TGOV29_SIR_COMPILER_WITNESS.md",
+    "docs/SNAPSLOT_ACCEPTANCE_LEDGER.md"
+  ],
+  "required_behavior": [
+    "Compile the marked local-loop JSON packet before Codex execution."
+  ],
+  "forbidden_behavior": [
+    "Do not execute raw validation command strings through a shell."
+  ],
+  "validation_commands": [
+    {
+      "id": "grep_literal",
+      "argv": [
+        "-qF",
+        "local-loop-preflight",
+        "tools/sir-compiler/src/index.ts"
+      ]
+    }
+  ],
+  "stop_rule": [
+    "Stop if local-loop packet validation fails."
+  ],
+  "return_format": [
+    "Return exact implementation summary."
+  ],
+  "ledger_update_required": "NONE"
+}
+SNAPSLOT_LOCAL_LOOP_PACKET_JSON_END

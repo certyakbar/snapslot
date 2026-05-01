@@ -1,0 +1,3 @@
+GOVERNOR VERDICT: CLEAR TO SCOPE
+
+This fixture intentionally omits the local-loop JSON markers.

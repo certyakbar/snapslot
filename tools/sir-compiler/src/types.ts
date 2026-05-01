@@ -152,3 +152,17 @@ export interface CommandExecutionResult {
   stderr: string;
   timed_out: boolean;
 }
+
+export interface LocalLoopPacket {
+  schema_version: "local-loop-packet.v1";
+  task_id: string;
+  risk_level: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  allowed_files: string[];
+  forbidden_files: string[];
+  required_behavior: string[];
+  forbidden_behavior: string[];
+  validation_commands: CommandObject[];
+  stop_rule: string[];
+  return_format: string[];
+  ledger_update_required: "NONE";
+}
