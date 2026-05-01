@@ -1,25 +1,13 @@
 {
   "schema_version": "1",
-  "verdict": "APPROVE",
-  "governor_login": "certyakbar",
-  "pr_number": 84,
-  "approved_parent_sha": "827250e162b3bdda26011f9ae31a5b1912398e59",
-  "approved_tree_sha": "0e80ae2ccb44d8803fe186ef86f0f41fbc6f442f",
-  "risk_tier": "HIGH",
-  "task_id": "T-GOV-29-PRE-COMPILER-GATE",
-  "declared_files": [
-    "schemas/local-loop-packet.schema.json",
-    "scripts/loop-runner.sh",
-    "tools/sir-compiler/fixtures/local-loop-fenced-json-governor-output.txt",
-    "tools/sir-compiler/fixtures/local-loop-injection-command-governor-output.txt",
-    "tools/sir-compiler/fixtures/local-loop-missing-json-governor-output.txt",
-    "tools/sir-compiler/fixtures/local-loop-valid-governor-output.txt",
-    "tools/sir-compiler/src/index.ts",
-    "tools/sir-compiler/src/local-loop-command-runner.ts",
-    "tools/sir-compiler/src/local-loop-packet.ts",
-    "tools/sir-compiler/src/schema-validator.ts",
-    "tools/sir-compiler/src/types.ts"
-  ],
-  "ledger_state": "NONE",
-  "issued_at": "2026-05-01T19:44:12.614Z"
+  "verdict": "NONE",
+  "governor_login": null,
+  "pr_number": null,
+  "approved_parent_sha": null,
+  "approved_tree_sha": null,
+  "risk_tier": null,
+  "task_id": null,
+  "declared_files": [],
+  "ledger_state": null,
+  "issued_at": null
 }
