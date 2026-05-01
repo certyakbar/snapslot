@@ -6,7 +6,7 @@
   "main": "server.ts",
   "scripts": {
     "dev": "ts-node-esm server.ts",
-    "test": "node --loader ts-node/esm tests/bookingEngine.test.ts && node --loader ts-node/esm tests/authIsolation.test.ts && node --loader ts-node/esm tests/coreProof.test.ts && node --loader ts-node/esm tests/notifications.test.ts && node --loader ts-node/esm tests/security.test.ts && npx jest tests/payments.test.ts && node --loader ts-node/esm tests/subscription.test.ts && node --loader ts-node/esm tests/deactivatedLogin.test.ts && node --loader ts-node/esm tests/businessStatusGating.test.ts && node --loader ts-node/esm tests/passwordReset.test.ts"
+    "test": "node --loader ts-node/esm tests/bookingEngine.test.ts && node --loader ts-node/esm tests/authIsolation.test.ts && node --loader ts-node/esm tests/coreProof.test.ts && node --loader ts-node/esm tests/notifications.test.ts && node --loader ts-node/esm tests/security.test.ts && npx jest tests/payments.test.ts && node --loader ts-node/esm tests/subscription.test.ts && node --loader ts-node/esm tests/deactivatedLogin.test.ts && node --loader ts-node/esm tests/businessStatusGating.test.ts && node --loader ts-node/esm tests/passwordReset.test.ts && node --loader ts-node/esm tests/approvalStateResolver.test.ts"
   },
   "keywords": [],
   "author": "",
