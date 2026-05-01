@@ -746,6 +746,35 @@ jobs:
                 force: false,
               });
 
+              // github_pr_comment scoped approval state is PR-scoped and non-authoritative.
+              // The global manifest remains authoritative; scoped approval state is not yet authoritative.
+              // file based scoped approval storage requires garbage collection after merge.
+              const scopedApprovalState = {
+                ...manifest,
+                storage_backend:       'github_pr_comment',
+                repository_persistent: false,
+                authority:             'diagnostic_only',
+              };
+
+              const scopedApprovalBody = [
+                'SNAPSLOT_SCOPED_APPROVAL_STATE_BEGIN',
+                JSON.stringify(scopedApprovalState, null, 2),
+                'SNAPSLOT_SCOPED_APPROVAL_STATE_END',
+              ].join('\n');
+
+              await github.rest.issues.createComment({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: pr.number,
+                body:         scopedApprovalBody,
+              });
+
+              core.info(
+                'github_pr_comment scoped approval state is PR-scoped and non-authoritative; ' +
+                'global manifest remains authoritative; scoped approval state is not yet authoritative; ' +
+                'file based scoped approval storage requires garbage collection after merge'
+              );
+
               core.info(
                 `Approval manifest committed as ${newCommit.sha} on ${headBranch} ` +
                 `(approved_parent_sha=${headSha.slice(0, 7)})`
