@@ -1,13 +1,15 @@
 {
   "schema_version": "1",
-  "verdict": "NONE",
-  "governor_login": null,
-  "pr_number": null,
-  "approved_parent_sha": null,
-  "approved_tree_sha": null,
-  "risk_tier": null,
-  "task_id": null,
-  "declared_files": [],
-  "ledger_state": null,
-  "issued_at": null
+  "verdict": "APPROVE",
+  "governor_login": "certyakbar",
+  "pr_number": 87,
+  "approved_parent_sha": "55ee4a30342776bcb4a16077d37c115b81666872",
+  "approved_tree_sha": "9742463e8dcdd75b77ac4a685774d7b8cb1aac9e",
+  "risk_tier": "HIGH",
+  "task_id": "T-GOV-29-PRE-SENTINEL-DIAGNOSTIC",
+  "declared_files": [
+    ".github/workflows/pr-sentinel.yml"
+  ],
+  "ledger_state": "NONE",
+  "issued_at": "2026-05-01T21:06:02.768Z"
 }

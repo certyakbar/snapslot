@@ -518,6 +518,21 @@ jobs:
               rows.push(['Governor verdict', '— N/A', governorNote]);
             }
 
+            // Scoped approval diagnostic only: non-gating future-state note.
+            // Do not change governorPassed or sentinelPassed semantics here.
+            // ops/GOVERNOR_APPROVAL.json remains the active authority; do not
+            // read or write scoped approval artifacts here. If file based scoped
+            // approval storage is added later, file based scoped approval storage
+            // requires garbage collection after merge, and repository-persistent
+            // scoped approval artifacts must not accumulate on main.
+            // Future scoped authority must fail closed on timestamp ties:
+            // timestamp equality fails closed.
+            rows.push([
+              'Scoped approval diagnostic',
+              '— DIAGNOSTIC',
+              'non-gating; global manifest remains authoritative via `ops/GOVERNOR_APPROVAL.json`; scoped approval state is not yet authoritative; file based scoped approval storage requires garbage collection after merge; repository-persistent scoped approval artifacts must not accumulate on main; timestamp equality fails closed for future scoped approval authority',
+            ]);
+
             // ── Determine overall verdict ─────────────────────────────────
             // governorPassed covers all four cases:
             //   true  — MEDIUM/LOW with no BLOCK, or any level with APPROVE
