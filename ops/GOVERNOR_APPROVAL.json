@@ -1,16 +1,13 @@
 {
   "schema_version": "1",
-  "verdict": "APPROVE",
-  "governor_login": "certyakbar",
-  "pr_number": 95,
-  "approved_parent_sha": "b0a9ebd711973e8fd20446c548572601aba5f7fd",
-  "approved_tree_sha": "e64c739fbf9551b629f84fb301e2890bda0689bd",
-  "risk_tier": "HIGH",
-  "task_id": "T-GOV-29-PRE-AUTHORITY-SWITCH",
-  "declared_files": [
-    ".github/workflows/pr-sentinel.yml",
-    "docs/SNAPSLOT_SENTINEL_CONTRACT.md"
-  ],
-  "ledger_state": "NONE",
-  "issued_at": "2026-05-02T12:59:43.213Z"
+  "verdict": "NONE",
+  "governor_login": null,
+  "pr_number": null,
+  "approved_parent_sha": null,
+  "approved_tree_sha": null,
+  "risk_tier": null,
+  "task_id": null,
+  "declared_files": [],
+  "ledger_state": null,
+  "issued_at": null
 }
