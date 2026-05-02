@@ -60,6 +60,11 @@ jobs:
               'github-actions[bot]',
               'snapslot-governor[bot]',
             ];
+            const USE_SCOPED_APPROVAL_AUTHORITY = true;
+            const MANIFEST_IS_NON_AUTHORITATIVE = true;
+            const REJECT_DIAGNOSTIC_ONLY_AUTHORITY = true;
+            const SCOPED_APPROVAL_CONTROLS_GOVERNOR_PASSED = true;
+            const GLOBAL_MANIFEST_NO_LONGER_CONTROLS_GOVERNOR_PASSED = true;
 
             // ── Validation results ─────────────────────────────────────────
             // Always from the reusable validate job outputs (pull_request path only).
@@ -276,178 +281,224 @@ jobs:
 
             // ── Group D: Governor verdict ──────────────────────────────────
             //
-            // APPROVE source of truth: ops/GOVERNOR_APPROVAL.json (the approval manifest).
-            //   The manifest is committed to the PR branch by the governor-manifest-commit job
-            //   when the Governor posts "GOVERNOR VERDICT: APPROVE FOR MERGE".
-            //   Approval is mathematically valid ONLY when ALL of the following hold:
-            //     (1) manifest.approved_parent_sha === parent SHA of the current PR HEAD
-            //     (2) manifest.approved_tree_sha   === tree SHA of that parent commit
-            //     (3) manifest.pr_number           === current PR number
-            //     (4) manifest.governor_login      === GOVERNOR_LOGIN
-            //     (5) manifest.risk_tier           === declared risk level
-            //     (6) manifest.declared_files      === changedFilesForScope (exact, both dirs)
-            //   Any commit pushed after the manifest commit automatically invalidates approval:
-            //   the new HEAD's parent becomes the manifest commit (not approved_parent_sha).
+            // APPROVE source of truth: scoped approval comments are authoritative.
+            //   ops/GOVERNOR_APPROVAL.json is retained for write/reset compatibility,
+            //   but parsedManifest no longer controls governorPassed.
+            //   authority: authoritative
+            //   authority must not be diagnostic_only
             //
             // BLOCK verdict: comment-based (conservative — a stale BLOCK is safe; never approves).
-            //   A BLOCK comment from @GOVERNOR_LOGIN posted AFTER the manifest's issued_at
-            //   overrides the manifest. If no manifest exists, any BLOCK blocks the PR.
-            //   If manifest.issued_at is newer than the latest BLOCK, the manifest wins.
+            //   A BLOCK comment from @GOVERNOR_LOGIN posted at or after the scoped approval
+            //   issued_at overrides approval. Equal timestamp fails closed.
             //
-            // CRITICAL/HIGH: valid manifest required; BLOCK always overrides.
-            // MEDIUM/LOW:    no manifest required; BLOCK still enforced at all risk levels.
+            // CRITICAL/HIGH: valid scoped approval comment required; BLOCK always overrides.
+            // MEDIUM/LOW:    no scoped approval required; BLOCK still enforced at all risk levels.
             //
-            // Fail closed: any API error in manifest fetch or BLOCK scan = governorPassed false.
+            // Fail closed: any API error in scoped approval fetch or BLOCK scan = governorPassed false.
 
             const governorCheckApplies = !!(riskLevel && ['CRITICAL', 'HIGH'].includes(riskLevel));
             let governorPassed = !governorCheckApplies; // default: pass for MEDIUM/LOW
             let governorNote   = governorCheckApplies
-              ? `Risk level \`${riskLevel}\` requires a valid Governor approval manifest (\`${MANIFEST_PATH}\`)`
+              ? `Risk level \`${riskLevel}\` requires a valid authoritative scoped approval comment`
               : `Not required for risk level \`${riskLevel || 'undeclared'}\``;
 
             let parsedManifest   = null;
-            let manifestIssuedAt = null;
             let latestBlockCreatedAt = null;
+            let scopedApprovalAuthorityNote = 'No scoped approval artifact evaluated';
+            let scopedApprovalIssuedAt = null;
+            let SCOPED_APPROVAL_AUTHORITY_PASSED = false;
+            const SCOPED_APPROVAL_BEGIN = 'SNAPSLOT_SCOPED_APPROVAL_STATE_BEGIN';
+            const SCOPED_APPROVAL_END = 'SNAPSLOT_SCOPED_APPROVAL_STATE_END';
 
-            // ── Step D1: Read and validate the approval manifest (CRITICAL/HIGH) ──
-            if (governorCheckApplies) {
+            // ── Step D1: Read retained approval manifest from PR HEAD ───────
+            // parsedManifest no longer controls governorPassed; retained for write/reset compatibility.
+            try {
+              let rawManifest = null;
               try {
-                let rawManifest = null;
+                const { data: fileResp } = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo:  context.repo.repo,
+                  path:  MANIFEST_PATH,
+                  ref:   context.payload.pull_request.head.sha,
+                });
+                rawManifest = Buffer.from(fileResp.content, 'base64').toString('utf8');
+              } catch (fetchErr) {
+                if (fetchErr.status !== 404) throw fetchErr;
+              }
+
+              if (rawManifest !== null) {
                 try {
-                  const { data: fileResp } = await github.rest.repos.getContent({
-                    owner: context.repo.owner,
-                    repo:  context.repo.repo,
-                    path:  MANIFEST_PATH,
-                    ref:   context.payload.pull_request.head.sha,
-                  });
-                  rawManifest = Buffer.from(fileResp.content, 'base64').toString('utf8');
-                } catch (fetchErr) {
-                  if (fetchErr.status === 404) {
-                    governorNote = `\`${MANIFEST_PATH}\` not found on PR HEAD — no approval manifest present`;
-                  } else {
-                    throw fetchErr;
-                  }
+                  parsedManifest = JSON.parse(rawManifest);
+                } catch (_) {
+                  parsedManifest = null;
+                }
+              }
+            } catch (e) {
+              core.warning(`Retained approval manifest read failed: ${e.message}`);
+              if (governorCheckApplies) {
+                governorPassed = false;
+                governorNote = `Retained approval manifest read failed — failing closed: ${e.message}`;
+              }
+            }
+
+            function stripScopedApprovalCodeFences(artifactText) {
+              return artifactText
+                .trim()
+                .replace(/^```(?:json)?[ \t]*\r?\n?/i, '')
+                .replace(/\r?\n?```$/i, '')
+                .trim();
+            }
+
+            function extractScopedApprovalArtifact(commentBody) {
+              const beginIndex = commentBody.indexOf(SCOPED_APPROVAL_BEGIN);
+              if (beginIndex === -1) return null;
+              const artifactStart = beginIndex + SCOPED_APPROVAL_BEGIN.length;
+              const endIndex = commentBody.indexOf(SCOPED_APPROVAL_END, artifactStart);
+              if (endIndex === -1) return null;
+              return commentBody.slice(artifactStart, endIndex);
+            }
+
+            async function collectScopedApprovalComments() {
+              // REQUIRE_SCOPED_APPROVAL_NATIVE_PAGINATION
+              const scopedApprovalPagination = await github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                per_page: 100,
+              });
+              return scopedApprovalPagination;
+            }
+
+            function compareExactScope(artifactScope) {
+              const scopedFiles = (Array.isArray(artifactScope) ? artifactScope : [])
+                .filter(f => f !== MANIFEST_PATH);
+              const undeclared = changedFilesForScope.filter(f => !scopedFiles.includes(f));
+              const phantom = scopedFiles.filter(f => !changedFilesForScope.includes(f));
+              return { passed: undeclared.length === 0 && phantom.length === 0, undeclared, phantom };
+            }
+
+            // ── Step D2: Scoped approval authority validation ──────────────
+            try {
+              if (SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS.length === 0) {
+                throw new Error('SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS is empty');
+              }
+
+              const allScopedApprovalComments = await collectScopedApprovalComments();
+              const scopedApprovalArtifacts = [];
+
+              for (const comment of allScopedApprovalComments) {
+                const artifactText = extractScopedApprovalArtifact(comment.body || '');
+                if (!artifactText) continue;
+                const commentAuthor = comment.user?.login;
+                if (!SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS.includes(commentAuthor)) continue;
+                scopedApprovalArtifacts.push({ comment, artifactText });
+              }
+
+              scopedApprovalArtifacts.sort((a, b) =>
+                new Date(a.comment.created_at).getTime() - new Date(b.comment.created_at).getTime()
+              );
+
+              const latestScopedApproval = scopedApprovalArtifacts[scopedApprovalArtifacts.length - 1] || null;
+              if (!latestScopedApproval) {
+                scopedApprovalAuthorityNote = 'No scoped approval comment artifact found';
+              } else {
+                let artifact = null;
+                const authorityIssues = [];
+                const commentAuthor = latestScopedApproval.comment.user?.login;
+
+                // REQUIRE_SCOPED_APPROVAL_BOT_AUTHOR
+                if (!SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS.includes(commentAuthor)) {
+                  authorityIssues.push(`comment author \`${commentAuthor || 'missing'}\` is not an accepted scoped approval bot`);
                 }
 
-                if (rawManifest !== null) {
-                  try {
-                    parsedManifest = JSON.parse(rawManifest);
-                  } catch (_) {
-                    governorNote   = `\`${MANIFEST_PATH}\` is malformed JSON — cannot validate approval`;
-                    parsedManifest = null;
-                  }
+                try {
+                  artifact = JSON.parse(stripScopedApprovalCodeFences(latestScopedApproval.artifactText));
+                } catch (_) {
+                  authorityIssues.push('scoped approval artifact is malformed JSON');
                 }
 
-                if (parsedManifest !== null) {
-                  if (parsedManifest.verdict !== 'APPROVE') {
-                    governorNote   = `Manifest verdict is \`${parsedManifest.verdict ?? 'missing'}\` — no active approval`;
-                    parsedManifest = null;
+                if (!artifact || typeof artifact !== 'object') {
+                  authorityIssues.push('scoped approval artifact must be a JSON object');
+                } else {
+                  if (artifact.authority !== 'authoritative') {
+                    authorityIssues.push('authority must not be diagnostic_only');
                   }
-                }
+                  if (artifact.pr_number !== context.issue.number) {
+                    authorityIssues.push('pr_number mismatch');
+                  }
+                  // REQUIRE_SCOPED_APPROVAL_GOVERNOR_LOGIN_MATCH
+                  if (artifact.governor_login !== GOVERNOR_LOGIN) {
+                    authorityIssues.push('governor_login mismatch');
+                  }
+                  if (artifact.risk_tier !== riskLevel) {
+                    authorityIssues.push('risk_tier mismatch');
+                  }
+                  if (artifact.task_id !== anchoredTaskId) {
+                    authorityIssues.push('task_id mismatch');
+                  }
+                  if (artifact.ledger_state !== anchoredLedger) {
+                    authorityIssues.push('ledger_state mismatch');
+                  }
+                  const scopeComparison = compareExactScope(artifact.declared_files);
+                  if (!scopeComparison.passed) {
+                    if (scopeComparison.undeclared.length > 0) {
+                      authorityIssues.push(`undeclared changed files: \`${scopeComparison.undeclared.join('`, `')}\``);
+                    }
+                    if (scopeComparison.phantom.length > 0) {
+                      authorityIssues.push(`phantom scoped files: \`${scopeComparison.phantom.join('`, `')}\``);
+                    }
+                  }
+                  scopedApprovalIssuedAt = artifact.issued_at ? new Date(artifact.issued_at) : null;
+                  if (!scopedApprovalIssuedAt || Number.isNaN(scopedApprovalIssuedAt.getTime())) {
+                    authorityIssues.push('issued_at missing or invalid');
+                    scopedApprovalIssuedAt = null;
+                  }
 
-                if (parsedManifest !== null) {
-                  manifestIssuedAt = parsedManifest.issued_at ? new Date(parsedManifest.issued_at) : null;
-
-                  // Fetch the HEAD commit to get its parent SHA
-                  const { data: headCommit } = await github.rest.git.getCommit({
+                  const { data: scopedHeadCommit } = await github.rest.git.getCommit({
                     owner:      context.repo.owner,
                     repo:       context.repo.repo,
                     commit_sha: context.payload.pull_request.head.sha,
                   });
-
-                  if (!headCommit.parents || headCommit.parents.length === 0) {
-                    governorNote   = 'PR HEAD commit has no parent — cannot verify approval binding';
-                    parsedManifest = null;
+                  if (!scopedHeadCommit.parents || scopedHeadCommit.parents.length === 0) {
+                    authorityIssues.push('PR HEAD commit has no parent');
                   } else {
-                    const parentSha = headCommit.parents[0].sha;
-
-                    // Binding check (1): approved_parent_sha must equal parent of current HEAD.
-                    // If code was pushed after the manifest, parentSha !== approved_parent_sha.
-                    if (parsedManifest.approved_parent_sha !== parentSha) {
-                      governorNote =
-                        `Approval bound to \`${(parsedManifest.approved_parent_sha || '').slice(0, 7)}\` ` +
-                        `but HEAD parent is \`${parentSha.slice(0, 7)}\` — ` +
-                        `commit pushed after approval; re-approval required`;
-                      parsedManifest = null;
-                    } else {
-                      // Fetch the approved parent commit to verify the tree SHA
-                      const { data: parentCommit } = await github.rest.git.getCommit({
-                        owner:      context.repo.owner,
-                        repo:       context.repo.repo,
-                        commit_sha: parentSha,
-                      });
-
-                      // Binding check (2): tree SHA — defense-in-depth against state mutation
-                      if (parsedManifest.approved_tree_sha !== parentCommit.tree.sha) {
-                        governorNote =
-                          `Approval tree \`${(parsedManifest.approved_tree_sha || '').slice(0, 7)}\` ` +
-                          `does not match parent tree \`${parentCommit.tree.sha.slice(0, 7)}\` — ` +
-                          `repository state mismatch; re-approval required`;
-                        parsedManifest = null;
-                      }
-                      // Binding check (3): PR number
-                      else if (parsedManifest.pr_number !== context.issue.number) {
-                        governorNote =
-                          `Approval manifest bound to PR #${parsedManifest.pr_number} ` +
-                          `not current PR #${context.issue.number}`;
-                        parsedManifest = null;
-                      }
-                      // Binding check (4): Governor login
-                      else if (parsedManifest.governor_login !== GOVERNOR_LOGIN) {
-                        governorNote =
-                          `Approval manifest governor_login \`${parsedManifest.governor_login}\` ` +
-                          `does not match required \`${GOVERNOR_LOGIN}\``;
-                        parsedManifest = null;
-                      }
-                      // Binding check (5): risk tier
-                      else if (parsedManifest.risk_tier !== riskLevel) {
-                        governorNote =
-                          `Approval manifest risk \`${parsedManifest.risk_tier}\` ` +
-                          `does not match declared PR risk \`${riskLevel}\``;
-                        parsedManifest = null;
-                      }
-                      else {
-                        // Binding check (6): scope — manifest declared_files vs changedFilesForScope
-                        // Both sides already exclude MANIFEST_PATH.
-                        const manifestScope  = (Array.isArray(parsedManifest.declared_files)
-                          ? parsedManifest.declared_files
-                          : []
-                        ).filter(f => f !== MANIFEST_PATH);
-
-                        const scopeUnmatched = changedFilesForScope.filter(f => !manifestScope.includes(f));
-                        const scopePhantom   = manifestScope.filter(f => !changedFilesForScope.includes(f));
-
-                        if (scopeUnmatched.length > 0 || scopePhantom.length > 0) {
-                          const parts = [];
-                          if (scopeUnmatched.length > 0)
-                            parts.push(`In diff but not in manifest scope: \`${scopeUnmatched.join('`, `')}\``);
-                          if (scopePhantom.length > 0)
-                            parts.push(`In manifest scope but not in diff: \`${scopePhantom.join('`, `')}\``);
-                          governorNote   = parts.join('; ') + ' — scope changed after approval; re-approval required';
-                          parsedManifest = null;
-                        } else {
-                          // All binding checks passed — manifest is provisionally valid
-                          governorPassed = true;
-                          governorNote   =
-                            `Approval manifest valid — bound to \`${parentSha.slice(0, 7)}\`` +
-                            (parsedManifest.issued_at ? ` (issued ${parsedManifest.issued_at})` : '');
-                        }
-                      }
+                    const scopedParentSha = scopedHeadCommit.parents[0].sha;
+                    const { data: scopedParentCommit } = await github.rest.git.getCommit({
+                      owner:      context.repo.owner,
+                      repo:       context.repo.repo,
+                      commit_sha: scopedParentSha,
+                    });
+                    if (artifact.approved_parent_sha !== scopedParentSha) {
+                      authorityIssues.push('approved_parent_sha mismatch');
+                    }
+                    if (artifact.approved_tree_sha !== scopedParentCommit.tree.sha) {
+                      authorityIssues.push('approved_tree_sha mismatch');
                     }
                   }
                 }
-              } catch (e) {
-                core.warning(`Approval manifest validation error: ${e.message}`);
+
+                SCOPED_APPROVAL_AUTHORITY_PASSED = authorityIssues.length === 0;
+                scopedApprovalAuthorityNote = SCOPED_APPROVAL_AUTHORITY_PASSED
+                  ? `Authoritative scoped approval valid (issued ${artifact.issued_at})`
+                  : `Authoritative scoped approval invalid: ${authorityIssues.join('; ')}`;
+              }
+
+              if (governorCheckApplies) {
+                governorPassed = SCOPED_APPROVAL_AUTHORITY_PASSED;
+                governorNote = scopedApprovalAuthorityNote;
+              }
+            } catch (e) {
+              core.warning(`Scoped approval authority validation error: ${e.message}`);
+              SCOPED_APPROVAL_AUTHORITY_PASSED = false;
+              if (governorCheckApplies) {
                 governorPassed = false;
-                governorNote   = `Approval manifest validation failed — failing closed: ${e.message}`;
+                governorNote = `Scoped approval authority validation failed — failing closed: ${e.message}`;
               }
             }
 
-            // ── Step D2: BLOCK comment scan (ALL risk levels) ─────────────
-            // A BLOCK from @GOVERNOR_LOGIN overrides any approval manifest.
-            // Timeline rule: if manifest.issued_at > latestBlock.created_at, manifest wins.
-            //   Otherwise (BLOCK is newer or equal, or no manifest), BLOCK wins.
-            // BLOCK is comment-based because stale BLOCKs are conservative; stale APPROVEs are not.
+            // ── Step D3: BLOCK comment scan (ALL risk levels) ─────────────
+            // A BLOCK from @GOVERNOR_LOGIN overrides approval unless the scoped approval is newer.
+            // BLOCK_NEWER_THAN_OR_EQUAL_TO_SCOPED_APPROVAL_FAILS
             try {
               const blockComments = [];
               let bPage = 1;
@@ -473,231 +524,27 @@ jobs:
               }
 
               if (blockComments.length > 0) {
-                const latestBlock     = blockComments[blockComments.length - 1];
+                const latestBlock = blockComments[blockComments.length - 1];
                 const latestBlockTime = new Date(latestBlock.created_at).getTime();
-                const manifestTime    = manifestIssuedAt ? manifestIssuedAt.getTime() : 0;
+                const scopedApprovalTime = scopedApprovalIssuedAt ? scopedApprovalIssuedAt.getTime() : 0;
                 latestBlockCreatedAt = latestBlock.created_at;
 
-                if (manifestTime > 0 && manifestTime > latestBlockTime) {
-                  // Manifest was issued after the BLOCK — APPROVE stands
+                if (scopedApprovalTime > 0 && scopedApprovalTime > latestBlockTime) {
                   governorNote += ` (supersedes BLOCK from ${latestBlock.created_at})`;
                 } else {
-                  // BLOCK is newer than (or contemporaneous with) manifest — BLOCK wins
                   governorPassed = false;
-                  governorNote   =
-                    `Governor BLOCK (${latestBlock.created_at}) — overrides approval manifest at all risk levels` +
+                  if (governorCheckApplies) {
+                    SCOPED_APPROVAL_AUTHORITY_PASSED = false;
+                  }
+                  governorNote =
+                    `Governor BLOCK (${latestBlock.created_at}) — overrides scoped approval at all risk levels` +
                     (blockComments.length > 1 ? ` (latest of ${blockComments.length} BLOCK verdicts)` : '');
                 }
               }
             } catch (e) {
               core.warning(`BLOCK comment scan failed: ${e.message}`);
-              if (governorCheckApplies) {
-                governorPassed = false;
-                governorNote   = `BLOCK comment scan failed — failing closed: ${e.message}`;
-              }
-            }
-
-            // ── Scoped approval diagnostic read (non-gating) ───────────────
-            // This runs only after the active Governor manifest/BLOCK path above.
-            // scoped approval comments are read for diagnostics only; they do
-            // not affect governorPassed, sentinelPassed, or allPassed.
-            const SCOPED_APPROVAL_BEGIN = 'SNAPSLOT_SCOPED_APPROVAL_STATE_BEGIN';
-            const SCOPED_APPROVAL_END = 'SNAPSLOT_SCOPED_APPROVAL_STATE_END';
-            let scopedApprovalDiagnosticStatus = 'indeterminate';
-            let scopedApprovalDiagnosticNote =
-              'Scoped approval diagnostic status: indeterminate; scoped approval comments are read for diagnostics only; scoped approval comments do not affect governorPassed; scoped approval comments do not affect sentinelPassed; scoped approval comments do not affect allPassed; global manifest remains authoritative';
-
-            function stripScopedApprovalCodeFences(artifactText) {
-              return artifactText
-                .trim()
-                .replace(/^```(?:json)?[ \t]*\r?\n?/i, '')
-                .replace(/\r?\n?```$/i, '')
-                .trim();
-            }
-
-            function extractScopedApprovalArtifact(commentBody) {
-              const beginIndex = commentBody.indexOf(SCOPED_APPROVAL_BEGIN);
-              if (beginIndex === -1) return null;
-              const artifactStart = beginIndex + SCOPED_APPROVAL_BEGIN.length;
-              const endIndex = commentBody.indexOf(SCOPED_APPROVAL_END, artifactStart);
-              if (endIndex === -1) return null;
-              return commentBody.slice(artifactStart, endIndex);
-            }
-
-            async function collectScopedApprovalComments() {
-              const scopedApprovalPagination = await github.paginate(github.rest.issues.listComments, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                per_page: 100,
-              });
-              return scopedApprovalPagination;
-            }
-
-            try {
-              if (SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS.length === 0) {
-                throw new Error('SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS is empty');
-              }
-
-              const allScopedApprovalComments = await collectScopedApprovalComments();
-              const botAuthoredScopedApprovalComments = [];
-
-              for (const comment of allScopedApprovalComments) {
-                const commentBody = comment.body || '';
-                const artifactText = extractScopedApprovalArtifact(commentBody);
-                if (!artifactText) continue;
-
-                const scopedApprovalCommentAuthor = comment.user?.login;
-                if (!scopedApprovalCommentAuthor) {
-                  throw new Error('scoped approval comment author identity is missing');
-                }
-                if (!SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS.includes(scopedApprovalCommentAuthor)) {
-                  continue;
-                }
-
-                botAuthoredScopedApprovalComments.push({
-                  comment,
-                  artifactText,
-                  scopedApprovalCommentAuthor,
-                });
-              }
-
-              botAuthoredScopedApprovalComments.sort((a, b) =>
-                new Date(a.comment.created_at).getTime() - new Date(b.comment.created_at).getTime()
-              );
-
-              const latestScopedApprovalComment =
-                botAuthoredScopedApprovalComments[botAuthoredScopedApprovalComments.length - 1] || null;
-
-              if (!latestScopedApprovalComment) {
-                scopedApprovalDiagnosticStatus = 'absent';
-                scopedApprovalDiagnosticNote =
-                  'Scoped approval diagnostic status: absent; scoped approval comments use native Octokit pagination before diagnostic selection; scoped approval comment author must match the required bot identity; scoped approval comments are read for diagnostics only; scoped approval comments do not affect governorPassed; scoped approval comments do not affect sentinelPassed; scoped approval comments do not affect allPassed; global manifest remains authoritative';
-              } else {
-                let scopedApprovalPayload = null;
-                try {
-                  scopedApprovalPayload = JSON.parse(
-                    stripScopedApprovalCodeFences(latestScopedApprovalComment.artifactText)
-                  );
-                } catch (_) {
-                  scopedApprovalDiagnosticStatus = 'malformed';
-                }
-
-                if (scopedApprovalPayload) {
-                  const diagnosticIssues = [];
-                  const diagnosticScope = (Array.isArray(scopedApprovalPayload.declared_files)
-                    ? scopedApprovalPayload.declared_files
-                    : []
-                  ).filter(f => f !== MANIFEST_PATH);
-
-                  const diagnosticScopeMissing = changedFilesForScope.filter(f => !diagnosticScope.includes(f));
-                  const diagnosticScopePhantom = diagnosticScope.filter(f => !changedFilesForScope.includes(f));
-
-                  if (scopedApprovalPayload.storage_backend !== 'github_pr_comment') {
-                    diagnosticIssues.push('storage_backend must be github_pr_comment');
-                  }
-                  if (scopedApprovalPayload.repository_persistent !== false) {
-                    diagnosticIssues.push('repository_persistent must be false');
-                  }
-                  if (!['diagnostic_only', 'authoritative'].includes(scopedApprovalPayload.authority)) {
-                    diagnosticIssues.push('authority must be diagnostic_only or authoritative');
-                  }
-                  if (scopedApprovalPayload.pr_number !== context.issue.number) {
-                    diagnosticIssues.push('pr_number mismatch');
-                  }
-                  if (scopedApprovalPayload.governor_login !== GOVERNOR_LOGIN) {
-                    diagnosticIssues.push('scoped approval payload governor_login must match GOVERNOR_LOGIN');
-                  }
-                  if (scopedApprovalPayload.risk_tier !== riskLevel) {
-                    diagnosticIssues.push('risk_tier mismatch');
-                  }
-                  if (scopedApprovalPayload.task_id !== anchoredTaskId) {
-                    diagnosticIssues.push('task_id mismatch');
-                  }
-                  if (scopedApprovalPayload.ledger_state !== anchoredLedger) {
-                    diagnosticIssues.push('ledger_state mismatch');
-                  }
-                  if (diagnosticScopeMissing.length > 0 || diagnosticScopePhantom.length > 0) {
-                    diagnosticIssues.push('declared_files mismatch against changedFilesForScope');
-                  }
-
-                  const scopedIssuedAt = scopedApprovalPayload.issued_at
-                    ? new Date(scopedApprovalPayload.issued_at)
-                    : null;
-                  if (!scopedIssuedAt || Number.isNaN(scopedIssuedAt.getTime())) {
-                    diagnosticIssues.push('issued_at missing or invalid');
-                  }
-
-                  if (diagnosticIssues.length > 0) {
-                    scopedApprovalDiagnosticStatus = 'mismatched';
-                  } else {
-                    const { data: scopedHeadCommit } = await github.rest.git.getCommit({
-                      owner:      context.repo.owner,
-                      repo:       context.repo.repo,
-                      commit_sha: context.payload.pull_request.head.sha,
-                    });
-                    if (!scopedHeadCommit.parents || scopedHeadCommit.parents.length === 0) {
-                      scopedApprovalDiagnosticStatus = 'indeterminate';
-                      diagnosticIssues.push('PR HEAD commit has no parent');
-                    } else {
-                      const scopedParentSha = scopedHeadCommit.parents[0].sha;
-                      const { data: scopedParentCommit } = await github.rest.git.getCommit({
-                        owner:      context.repo.owner,
-                        repo:       context.repo.repo,
-                        commit_sha: scopedParentSha,
-                      });
-
-                      if (
-                        scopedApprovalPayload.approved_parent_sha !== scopedParentSha ||
-                        scopedApprovalPayload.approved_tree_sha !== scopedParentCommit.tree.sha
-                      ) {
-                        scopedApprovalDiagnosticStatus = 'stale';
-                      } else if (latestBlockCreatedAt) {
-                        const scopedIssuedTime = scopedIssuedAt.getTime();
-                        const latestBlockTime = new Date(latestBlockCreatedAt).getTime();
-                        if (scopedIssuedTime === latestBlockTime) {
-                          scopedApprovalDiagnosticStatus = 'blocked_by_equal_timestamp';
-                        } else if (scopedIssuedTime < latestBlockTime) {
-                          scopedApprovalDiagnosticStatus = 'stale';
-                        } else {
-                          scopedApprovalDiagnosticStatus = 'would pass';
-                        }
-                      } else {
-                        scopedApprovalDiagnosticStatus = 'would pass';
-                      }
-                    }
-                  }
-
-                  scopedApprovalDiagnosticNote =
-                    `Scoped approval diagnostic status: ${scopedApprovalDiagnosticStatus}; ` +
-                    `scoped approval comment author must match the required bot identity ` +
-                    `(${SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS.join(', ')}); ` +
-                    `scoped approval payload governor_login must match GOVERNOR_LOGIN; ` +
-                    `scoped approval comments use native Octokit pagination before diagnostic selection; ` +
-                    `scoped approval comments are read for diagnostics only; ` +
-                    `scoped approval comments do not affect governorPassed; ` +
-                    `scoped approval comments do not affect sentinelPassed; ` +
-                    `scoped approval comments do not affect allPassed; ` +
-                    `global manifest remains authoritative` +
-                    (diagnosticIssues.length > 0 ? `; diagnostic detail: ${diagnosticIssues.join('; ')}` : '');
-                } else {
-                  scopedApprovalDiagnosticNote =
-                    'Scoped approval diagnostic status: malformed; scoped approval comments use native Octokit pagination before diagnostic selection; scoped approval comment author must match the required bot identity; scoped approval payload governor_login must match GOVERNOR_LOGIN; scoped approval comments are read for diagnostics only; scoped approval comments do not affect governorPassed; scoped approval comments do not affect sentinelPassed; scoped approval comments do not affect allPassed; global manifest remains authoritative';
-                }
-              }
-            } catch (e) {
-              const scopedApprovalReadIndeterminate = e.message;
-              scopedApprovalDiagnosticStatus = 'indeterminate';
-              scopedApprovalDiagnosticNote =
-                `Scoped approval diagnostic status: indeterminate; scoped approval read diagnostic failed closed: ${scopedApprovalReadIndeterminate}; ` +
-                `scoped approval comments use native Octokit pagination before diagnostic selection; ` +
-                `scoped approval comment author must match the required bot identity; ` +
-                `scoped approval payload governor_login must match GOVERNOR_LOGIN; ` +
-                `scoped approval comments are read for diagnostics only; ` +
-                `scoped approval comments do not affect governorPassed; ` +
-                `scoped approval comments do not affect sentinelPassed; ` +
-                `scoped approval comments do not affect allPassed; ` +
-                `global manifest remains authoritative`;
+              governorPassed = false;
+              governorNote   = `BLOCK comment scan failed — failing closed: ${e.message}`;
             }
 
             // ── Build check table ────────────────────────────────────────────
@@ -715,8 +562,8 @@ jobs:
             ];
 
             // Governor verdict row label and result vary by situation:
-            //   - CRITICAL/HIGH with no valid manifest → required, FAIL
-            //   - Any risk level with active BLOCK newer than manifest → overrides, FAIL
+            //   - CRITICAL/HIGH with no valid scoped approval → required, FAIL
+            //   - Any risk level with active BLOCK newer than or equal to scoped approval → overrides, FAIL
             //   - MEDIUM/LOW with no BLOCK → N/A
             if (governorCheckApplies || !governorPassed) {
               const label = governorCheckApplies
@@ -728,9 +575,9 @@ jobs:
             }
 
             rows.push([
-              'Scoped approval diagnostic',
-              '— DIAGNOSTIC',
-              scopedApprovalDiagnosticNote,
+              'Scoped approval authority',
+              governorCheckApplies ? p(SCOPED_APPROVAL_AUTHORITY_PASSED) : '— N/A',
+              scopedApprovalAuthorityNote,
             ]);
 
             // ── Determine overall verdict ─────────────────────────────────
@@ -764,7 +611,7 @@ jobs:
               `**Verdict: ${verdict}**`,
               '',
               allPassed
-                ? '> All checks passed. A Governor approval manifest (`ops/GOVERNOR_APPROVAL.json`) is required for CRITICAL or HIGH risk changes before merge.'
+                ? '> All checks passed. scoped approval comments are authoritative for CRITICAL or HIGH risk changes before merge; ops/GOVERNOR_APPROVAL.json is retained but no longer active approval authority.'
                 : '> One or more checks failed. Fix all ❌ items and push again.',
               '',
               '> Governed by `docs/SNAPSLOT_SENTINEL_CONTRACT.md` and `docs/SNAPSLOT_RISK_POLICY.md`.',

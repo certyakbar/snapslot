@@ -138,36 +138,37 @@ If the changed-files API call fails, the Sentinel fails closed — it does not s
 
 Governor verdict comments are scanned at **all risk levels** on every PR.
 The rules differ by risk level, but the scan and authentication are universal.
+For CRITICAL and HIGH PRs, scoped approval PR-comment artifacts are now the
+active authority. `ops/GOVERNOR_APPROVAL.json` is retained but non-authoritative.
 
-**D1. Verdict authentication and latest-wins rule**
+**D1. Scoped approval authentication and binding rule**
 
-Authentication: Only PR comments from `@certyakbar` are accepted as Governor verdicts.
-The GitHub API returns `comment.user.login`, which is controlled by GitHub and cannot
-be spoofed by any commenter. A comment from any other account that contains the verdict
-pattern is ignored.
+Authentication: only scoped approval artifact comments from configured bot identities
+are accepted for CRITICAL/HIGH approval authority. The GitHub API returns
+`comment.user.login`, which is controlled by GitHub and cannot be spoofed by any
+commenter. A comment from any other account that contains a scoped artifact marker is
+ignored for active approval authority.
 
-Latest wins: All matching authenticated verdict comments are collected across all comment
-pages. The comment posted most recently (last in ascending creation order) is used as the
-active verdict. This correctly handles:
-- BLOCK then APPROVE: the later APPROVE overrides — merge may proceed
-- APPROVE then BLOCK: the later BLOCK overrides — merge is blocked
-- Single verdict: that verdict is used directly
+The latest bot-authored scoped approval artifact is the candidate authority. It passes
+only when it is `authority: "authoritative"`, targets the current PR, matches
+`GOVERNOR_LOGIN`, risk, task ID, ledger state, exact changed-file scope, parent SHA,
+parent tree SHA, and has a valid `issued_at`.
 
 If the comments API call fails, the Sentinel fails closed — it does not silently pass.
 
 **D2. Governor APPROVE required for CRITICAL and HIGH**
 Condition: applies when declared risk level is `CRITICAL` or `HIGH`
-Rule: An authenticated Governor APPROVE verdict comment must be present.
+Rule: A valid authoritative scoped approval PR-comment artifact must be present.
 If none is found, the PR is SENTINEL-FAIL regardless of other checks.
 Block on failure: yes
 
-Pattern for APPROVE: `GOVERNOR VERDICT:` followed by `APPROVE FOR MERGE`
-Must appear in a comment from `@certyakbar`.
+`diagnostic_only` scoped artifacts are rejected by executable Sentinel logic.
 
 **D3. Governor BLOCK enforced at all risk levels**
 Condition: applies at every risk level, including `MEDIUM` and `LOW`
-Rule: If the latest authenticated Governor verdict is a BLOCK, the PR is SENTINEL-FAIL.
-A BLOCK overrides any prior APPROVE. A later APPROVE overrides a prior BLOCK.
+Rule: A Governor BLOCK comment from `@certyakbar` is always scanned and enforced.
+If the latest BLOCK timestamp is newer than or equal to the scoped approval `issued_at`,
+the PR is SENTINEL-FAIL. Equal timestamp fails closed.
 Block on failure: yes — at every risk level
 
 Pattern for BLOCK: `GOVERNOR VERDICT:` followed by `BLOCK`
@@ -208,32 +209,36 @@ The Sentinel must never:
 
 ## 6. Integration with Governor
 
-### 6.1 APPROVE — manifest-bound (CRITICAL and HIGH)
+### 6.1 APPROVE — scoped-comment-bound (CRITICAL and HIGH)
 
 For CRITICAL and HIGH risk PRs, both must be true before merge:
 1. SENTINEL-PASS
-2. A valid `ops/GOVERNOR_APPROVAL.json` manifest exists on the PR HEAD commit (see §12)
+2. A valid authoritative scoped approval PR-comment artifact exists for the current PR
 
-The manifest is the sole source of truth for Governor APPROVE. PR comments are audit
-trail only. The Sentinel does not scan comments for APPROVE verdicts.
+scoped approval comments are authoritative. `ops/GOVERNOR_APPROVAL.json` is retained
+but non-authoritative for active HIGH/CRITICAL approval. The Sentinel still reads the
+manifest from PR HEAD for write/reset compatibility, but manifest approval alone cannot
+pass HIGH/CRITICAL.
 
 The Governor posts `GOVERNOR VERDICT: APPROVE FOR MERGE` as a PR comment (see format
 below). The `governor-manifest-commit` job (triggered by this comment) reads the current
 PR HEAD SHA and tree SHA, then commits `ops/GOVERNOR_APPROVAL.json` to the PR branch.
-The Sentinel validates the manifest on the resulting synchronize event.
+The same job also posts the authoritative scoped approval artifact. The Sentinel validates
+the scoped approval artifact on the resulting synchronize event.
 
-For MEDIUM and LOW risk PRs, no manifest is required. SENTINEL-PASS alone is sufficient
-for merge, unless a BLOCK comment is present.
+For MEDIUM and LOW risk PRs, no scoped approval artifact is required. SENTINEL-PASS alone
+is sufficient for merge, unless a BLOCK comment is present.
 
 ### 6.2 BLOCK — comment-based (all risk levels)
 
-A Governor BLOCK comment from `@certyakbar` overrides any approval manifest at all risk
+A Governor BLOCK comment from `@certyakbar` overrides scoped approval at all risk
 levels. BLOCK remains comment-based because a stale BLOCK is conservative (blocks
 something that may now be safe) — whereas a stale APPROVE is dangerous (approves
 something that may no longer have been reviewed).
 
-Timeline rule: if `manifest.issued_at > latestBlock.created_at`, the manifest is newer
-and the BLOCK is considered superseded. If the BLOCK is newer, it wins.
+Timeline rule: if `scopedApproval.issued_at > latestBlock.created_at`, the scoped approval
+is newer and the BLOCK is considered superseded. If the BLOCK is newer than or equal to
+the scoped approval, it wins.
 
 ### 6.3 Comment formats
 
@@ -253,8 +258,8 @@ Required before merge: [exact action]
 
 ### 6.4 Governance violations
 
-A merge without a valid approval manifest on a CRITICAL or HIGH PR is a governance
-violation, even if SENTINEL-PASS is present.
+A merge without a valid authoritative scoped approval artifact on a CRITICAL or HIGH PR
+is a governance violation, even if SENTINEL-PASS is present.
 
 A Governor BLOCK on any risk level PR is a governance violation to merge, even if
 SENTINEL-PASS is present, because the Sentinel enforces the BLOCK automatically.
@@ -352,7 +357,7 @@ This keeps the PR readable for the Governor while reducing wording-sensitive fai
 
 ### 10.4 ops/GOVERNOR_APPROVAL.json and scope checks
 
-`ops/GOVERNOR_APPROVAL.json` is the Governor approval manifest (see §12). It is
+`ops/GOVERNOR_APPROVAL.json` is the retained Governor approval manifest (see §12). It is
 committed to the PR branch by the `governor-manifest-commit` job (or manually during
 bootstrap) and is excluded from both C3 (declared scope vs actual diff) and the Group D
 scope binding check.
@@ -438,18 +443,18 @@ Before the system may be called hardened, SnapSlot must prove all of the followi
 
 ---
 
-## 12. Approval manifest binding
+## 12. Retained approval manifest binding
 
 ### 12.1 Purpose
 
-`ops/GOVERNOR_APPROVAL.json` is the committed, machine-readable source of truth for
-Governor APPROVE verdicts on CRITICAL and HIGH risk PRs. It eliminates the TOCTOU
-(stale-approval) gap that exists when approvals are stored only in PR comments.
+`ops/GOVERNOR_APPROVAL.json` is the retained committed manifest for compatibility with
+the existing `governor-manifest-commit` writer and post-merge reset mechanics. It is no
+longer the active approval authority for CRITICAL and HIGH risk PRs.
 
-A comment-based approval is not bound to any commit SHA. Code pushed after the approval
-comment causes the Sentinel to pass a commit that was never reviewed. The manifest model
-eliminates this by binding the approval to the exact parent commit SHA and tree SHA at
-the moment of approval. Any subsequent commit automatically invalidates the approval.
+The active authority is the scoped approval PR-comment artifact, which binds approval to
+the exact parent commit SHA and tree SHA at the moment of approval. Any subsequent commit
+automatically invalidates scoped approval because the current HEAD parent no longer
+matches the approved parent SHA.
 
 ### 12.2 Manifest schema
 
@@ -473,40 +478,38 @@ the moment of approval. Any subsequent commit automatically invalidates the appr
 `verdict` is `"NONE"` and all binding fields are `null`. The `governor-manifest-commit`
 job overwrites it with `verdict: "APPROVE"` when the Governor posts an APPROVE comment.
 
-### 12.3 Binding validation algorithm
+### 12.3 Retained manifest read algorithm
 
-When `sentinel-judge` runs on a CRITICAL or HIGH risk PR it executes:
+When `sentinel-judge` runs, it still attempts to fetch `ops/GOVERNOR_APPROVAL.json` from
+the current PR HEAD via the Contents API for write/reset compatibility. The parsed
+manifest does not set `governorPassed = true` for any risk tier.
 
-1. Fetch `ops/GOVERNOR_APPROVAL.json` from the current PR HEAD via the Contents API.
-   If absent or malformed → no approval → FAIL.
-2. Check `manifest.verdict === 'APPROVE'`. If `NONE` → FAIL.
-3. Fetch the current HEAD commit. Get `parentSha = headCommit.parents[0].sha`.
-4. **Parent SHA binding**: `manifest.approved_parent_sha === parentSha`.
-   If not equal, code was pushed after approval → FAIL.
-5. Fetch the parent commit. Get `parentCommit.tree.sha`.
-6. **Tree SHA binding**: `manifest.approved_tree_sha === parentCommit.tree.sha`.
-   Defense-in-depth against state mutation → FAIL if mismatch.
-7. **PR binding**: `manifest.pr_number === current PR number` → FAIL if mismatch.
-8. **Identity binding**: `manifest.governor_login === 'certyakbar'` → FAIL if mismatch.
-9. **Risk binding**: `manifest.risk_tier === declared risk level` → FAIL if mismatch.
-10. **Scope binding**: `manifest.declared_files` (excluding `ops/GOVERNOR_APPROVAL.json`)
-    must exactly match `changedFilesForScope` (actual diff minus `ops/GOVERNOR_APPROVAL.json`),
-    both directions. Undeclared files in diff or phantom files in manifest → FAIL.
-11. After manifest validation, scan for BLOCK comments. If latest BLOCK is newer than
-    `manifest.issued_at`, BLOCK overrides → FAIL.
+Current CRITICAL/HIGH approval binding is validated from the scoped approval artifact:
 
-If all 11 checks pass → `governorPassed = true`.
+1. Comment author must be an accepted scoped approval bot.
+2. `artifact.authority === "authoritative"`.
+3. `artifact.pr_number === current PR number`.
+4. `artifact.governor_login === "certyakbar"`.
+5. `artifact.risk_tier === declared risk level`.
+6. `artifact.task_id === declared task ID`.
+7. `artifact.ledger_state === declared ledger state`.
+8. `artifact.declared_files` must exactly match `changedFilesForScope` in both directions.
+9. `artifact.approved_parent_sha === parent SHA of current PR HEAD`.
+10. `artifact.approved_tree_sha === tree SHA of that parent commit`.
+11. `artifact.issued_at` must be a valid date.
+
+If all scoped checks pass and no newer-or-equal BLOCK applies, `governorPassed = true`.
 
 ### 12.4 Invalidation conditions
 
-The approval manifest is automatically invalidated (without any Governor action) when:
+The scoped approval artifact is automatically invalidated (without any Governor action) when:
 
 - Any commit is pushed after the manifest commit (parent SHA check fails)
 - The PR is retargeted or the manifest is tampered with (tree SHA check fails)
-- The PR number changes (manifest used on a different PR)
+- The PR number changes (scoped approval used on a different PR)
 - The risk tier is changed in the PR body after approval
 - The declared scope changes in the PR body after approval
-- A BLOCK comment is posted after the manifest's `issued_at`
+- A BLOCK comment is posted at or after the scoped approval `issued_at`
 
 ### 12.5 How the Governor approves a PR
 
@@ -517,7 +520,8 @@ The approval manifest is automatically invalidated (without any Governor action)
    `risk`, and `declared_files` from the PR body, and commits `ops/GOVERNOR_APPROVAL.json`
    with `approved_parent_sha = current HEAD SHA`.
 4. The manifest commit produces a `pull_request synchronize` event.
-5. `sentinel-judge` runs on the new SHA, validates the manifest → SENTINEL-PASS.
+5. The job posts an authoritative scoped approval PR-comment artifact.
+6. `sentinel-judge` runs on the new SHA, validates the scoped approval artifact → SENTINEL-PASS.
 
 ### 12.6 Bootstrap note
 
@@ -551,3 +555,21 @@ PR #93 authority switch remains blocked until this writer-path task is merged.
 manifest retirement remains a later task.
 T-GOV-29 actual witness remains not complete.
 diagnostic_only was the PR #93 bootstrap blocker.
+
+---
+
+## 14. T-GOV-29-PRE-AUTHORITY-SWITCH
+
+scoped approval comments are authoritative.
+
+ops/GOVERNOR_APPROVAL.json is retained but non-authoritative.
+
+manifest retirement remains a later task.
+
+T-GOV-29 actual witness remains not complete.
+
+diagnostic_only scoped artifacts do not pass.
+
+BLOCK newer than or equal to scoped approval fails closed.
+
+manifest approval alone cannot pass HIGH/CRITICAL.
