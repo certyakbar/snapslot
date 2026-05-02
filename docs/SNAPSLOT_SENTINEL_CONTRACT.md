@@ -222,9 +222,9 @@ pass HIGH/CRITICAL.
 
 The Governor posts `GOVERNOR VERDICT: APPROVE FOR MERGE` as a PR comment (see format
 below). The `governor-manifest-commit` job (triggered by this comment) reads the current
-PR HEAD SHA and tree SHA, then commits `ops/GOVERNOR_APPROVAL.json` to the PR branch.
-The same job also posts the authoritative scoped approval artifact. The Sentinel validates
-the scoped approval artifact on the resulting synchronize event.
+PR HEAD SHA and tree SHA, posts the authoritative scoped approval artifact, then pushes
+a same-tree synchronize-trigger commit. The Sentinel validates the scoped approval
+artifact on the resulting synchronize event.
 
 For MEDIUM and LOW risk PRs, no scoped approval artifact is required. SENTINEL-PASS alone
 is sufficient for merge, unless a BLOCK comment is present.
@@ -242,7 +242,7 @@ the scoped approval, it wins.
 
 ### 6.3 Comment formats
 
-Governor APPROVE format (triggers manifest commit; also serves as audit trail):
+Governor APPROVE format (triggers scoped approval artifact and synchronize commit; also serves as audit trail):
 ```
 GOVERNOR VERDICT: APPROVE FOR MERGE
 Risk level: [CRITICAL | HIGH | MEDIUM | LOW]
@@ -358,9 +358,8 @@ This keeps the PR readable for the Governor while reducing wording-sensitive fai
 ### 10.4 ops/GOVERNOR_APPROVAL.json and scope checks
 
 `ops/GOVERNOR_APPROVAL.json` is the retained Governor approval manifest (see §12). It is
-committed to the PR branch by the `governor-manifest-commit` job (or manually during
-bootstrap) and is excluded from both C3 (declared scope vs actual diff) and the Group D
-scope binding check.
+retained for compatibility, no longer written by approval comments, and excluded from
+both C3 (declared scope vs actual diff) and the Group D scope binding check.
 
 For B3 (allowed files declaration), `ops/GOVERNOR_APPROVAL.json` may be listed in the
 PR body FILES section. When it is listed there, the Sentinel must not count it as a
@@ -475,8 +474,8 @@ matches the approved parent SHA.
 ```
 
 `ops/GOVERNOR_APPROVAL.json` always exists in the repository. When no approval is active,
-`verdict` is `"NONE"` and all binding fields are `null`. The `governor-manifest-commit`
-job overwrites it with `verdict: "APPROVE"` when the Governor posts an APPROVE comment.
+`verdict` is `"NONE"` and all binding fields are `null`. Approval comments no longer
+overwrite it.
 
 ### 12.3 Retained manifest read algorithm
 
@@ -504,7 +503,7 @@ If all scoped checks pass and no newer-or-equal BLOCK applies, `governorPassed =
 
 The scoped approval artifact is automatically invalidated (without any Governor action) when:
 
-- Any commit is pushed after the manifest commit (parent SHA check fails)
+- Any commit is pushed after the synchronize-trigger commit (parent SHA check fails)
 - The PR is retargeted or the manifest is tampered with (tree SHA check fails)
 - The PR number changes (scoped approval used on a different PR)
 - The risk tier is changed in the PR body after approval
@@ -517,10 +516,10 @@ The scoped approval artifact is automatically invalidated (without any Governor 
 2. Governor posts a comment containing `GOVERNOR VERDICT: APPROVE FOR MERGE`.
 3. The `governor-manifest-commit` job (triggered by the `issue_comment` event, using the
    main branch workflow) reads the current PR HEAD SHA and tree SHA, parses `task_id`,
-   `risk`, and `declared_files` from the PR body, and commits `ops/GOVERNOR_APPROVAL.json`
-   with `approved_parent_sha = current HEAD SHA`.
-4. The manifest commit produces a `pull_request synchronize` event.
-5. The job posts an authoritative scoped approval PR-comment artifact.
+   `risk`, and `declared_files` from the PR body.
+4. The job posts an authoritative scoped approval PR-comment artifact with
+   `approved_parent_sha = current HEAD SHA` and `approved_tree_sha = current tree SHA`.
+5. The job pushes a same-tree synchronize-trigger commit, producing a `pull_request synchronize` event.
 6. `sentinel-judge` runs on the new SHA, validates the scoped approval artifact → SENTINEL-PASS.
 
 ### 12.6 Bootstrap note
@@ -529,7 +528,8 @@ For the Phase 0.75 PR (the PR that introduces this manifest model), the Governor
 committed `ops/GOVERNOR_APPROVAL.json` directly to the PR branch because the
 `governor-manifest-commit` job did not yet exist on main's workflow. This is the only PR
 approved via manual manifest creation. All subsequent CRITICAL/HIGH approvals use the
-automated `governor-manifest-commit` job triggered by the APPROVE comment.
+automated `governor-manifest-commit` job triggered by the APPROVE comment to post scoped
+approval state and push the synchronize-trigger commit.
 
 ### 12.7 BLOCK does not use a manifest
 
@@ -573,3 +573,19 @@ diagnostic_only scoped artifacts do not pass.
 BLOCK newer than or equal to scoped approval fails closed.
 
 manifest approval alone cannot pass HIGH/CRITICAL.
+
+## 15. T-GOV-29-PRE-MANIFEST-WRITE-NEUTRALIZATION
+
+scoped approval comments are authoritative.
+
+approval comments no longer write ops/GOVERNOR_APPROVAL.json.
+
+approval comments still push a synchronize-trigger commit.
+
+ops/GOVERNOR_APPROVAL.json is retained but non-authoritative.
+
+post-merge reset workflow retirement remains a later task.
+
+manifest retirement remains not fully complete.
+
+T-GOV-29 actual witness remains not complete.
