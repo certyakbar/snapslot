@@ -5,8 +5,8 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, edited]
   # Governor verdict comments trigger the governor-manifest-commit job, which
-  # commits ops/GOVERNOR_APPROVAL.json (the approval manifest) to the PR branch,
-  # producing a genuine pull_request synchronize event on a new SHA.
+  # posts scoped approval state for APPROVE verdicts or refreshes Sentinel for
+  # BLOCK verdicts, then produces a genuine pull_request synchronize event.
   # Top-level PR conversation comments are issue_comment events in GitHub's API.
   # The governor-manifest-commit job restricts execution to PR comments that
   # contain 'GOVERNOR VERDICT', so ordinary review discussion is ignored.
@@ -14,7 +14,7 @@ on:
     types: [created]
 
 permissions:
-  contents: write  # required: governor-manifest-commit calls git.createBlob + git.createTree + git.createCommit + git.updateRef
+  contents: write  # required: governor-manifest-commit calls git.createCommit + git.updateRef
   pull-requests: write
   issues: write
 
@@ -630,12 +630,12 @@ jobs:
 
   # ── Governor manifest-commit trigger ─────────────────────────────────────
   # When the Governor posts "GOVERNOR VERDICT: APPROVE FOR MERGE", this job
-  # commits ops/GOVERNOR_APPROVAL.json (the approval manifest) to the PR branch.
-  # The manifest records approved_parent_sha (the exact commit SHA being approved)
-  # and approved_tree_sha (the Merkle root of the reviewed repository state).
-  # The commit produces a genuine pull_request synchronize event on a new SHA.
-  # sentinel-judge validates the manifest on the new SHA:
-  #   parent_of_new_HEAD === manifest.approved_parent_sha  →  approval valid
+  # posts an authoritative scoped approval artifact to the PR and pushes a
+  # same-tree synchronize-trigger commit. The artifact records approved_parent_sha
+  # (the exact commit SHA being approved) and approved_tree_sha (the Merkle root
+  # of the reviewed repository state). sentinel-judge validates the scoped
+  # approval artifact on the new SHA:
+  #   parent_of_new_HEAD === artifact.approved_parent_sha  →  approval valid
   #   any further commit  →  new parent ≠ approved_parent_sha  →  auto-expired
   #
   # When the Governor posts "GOVERNOR VERDICT: BLOCK", this job pushes an
@@ -646,7 +646,7 @@ jobs:
   # Authentication: the Governor App token signs the commit. The script also
   # checks comment.user.login === GOVERNOR_LOGIN before acting.
   governor-manifest-commit:
-    name: Governor manifest commit
+    name: Governor verdict synchronize trigger
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: |
@@ -663,7 +663,7 @@ jobs:
           app-id: ${{ secrets.GOVERNOR_APP_ID }}
           private-key: ${{ secrets.GOVERNOR_APP_PRIVATE_KEY }}
 
-      - name: Commit Governor verdict manifest
+      - name: Publish Governor verdict artifact
         uses: actions/github-script@v7
         with:
           github-token: ${{ steps.governor-app-token.outputs.token }}
@@ -702,7 +702,7 @@ jobs:
             const isBlock   = /GOVERNOR VERDICT:\s*BLOCK/i.test(commentBody);
 
             if (isApprove) {
-              // ── Build and commit the approval manifest ─────────────────────
+              // ── Build scoped approval state and trigger synchronize ────────
               // Fetch head commit to get tree SHA (= approved_tree_sha)
               const { data: headCommit } = await github.rest.git.getCommit({
                 owner:      context.repo.owner,
@@ -740,65 +740,18 @@ jobs:
                 .map(m => m[1].trim())
                 .filter(f => f.length > 0 && !f.startsWith('<!--') && f !== MANIFEST_PATH);
 
-              const manifest = {
-                schema_version:      '1',
-                verdict:             'APPROVE',
-                governor_login:      GOVERNOR_LOGIN,
-                pr_number:           pr.number,
-                approved_parent_sha: headSha,
-                approved_tree_sha:   headCommit.tree.sha,
-                risk_tier:           riskTier,
-                task_id:             taskId,
-                declared_files:      declaredFiles,
-                ledger_state:        ledger,
-                issued_at:           new Date().toISOString(),
-              };
-
-              const manifestJson = JSON.stringify(manifest, null, 2) + '\n';
-
-              // Create blob → new tree → commit → advance ref
-              const { data: blob } = await github.rest.git.createBlob({
-                owner:    context.repo.owner,
-                repo:     context.repo.repo,
-                content:  Buffer.from(manifestJson).toString('base64'),
-                encoding: 'base64',
-              });
-
-              const { data: newTree } = await github.rest.git.createTree({
-                owner:     context.repo.owner,
-                repo:      context.repo.repo,
-                base_tree: headCommit.tree.sha,
-                tree: [{
-                  path: MANIFEST_PATH,
-                  mode: '100644',
-                  type: 'blob',
-                  sha:  blob.sha,
-                }],
-              });
-
-              const { data: newCommit } = await github.rest.git.createCommit({
-                owner:   context.repo.owner,
-                repo:    context.repo.repo,
-                message: `chore: bind governor approval to ${headSha.slice(0, 7)}`,
-                tree:    newTree.sha,
-                parents: [headSha],
-              });
-
-              // force: false — rejects if branch has advanced since we read headSha
-              await github.rest.git.updateRef({
-                owner: context.repo.owner,
-                repo:  context.repo.repo,
-                ref:   `heads/${headBranch}`,
-                sha:   newCommit.sha,
-                force: false,
-              });
-
-              // scoped approval writer emits authoritative future-authority artifact.
-              // github_pr_comment scoped approval state is PR-scoped and non-authoritative.
-              // The global manifest remains authoritative; scoped approval state is not yet authoritative.
-              // file based scoped approval storage requires garbage collection after merge.
               const scopedApprovalState = {
-                ...manifest,
+                schema_version: '1',
+                verdict: 'APPROVE',
+                governor_login: GOVERNOR_LOGIN,
+                pr_number: pr.number,
+                approved_parent_sha: headSha,
+                approved_tree_sha: headCommit.tree.sha,
+                risk_tier: riskTier,
+                task_id: taskId,
+                declared_files: declaredFiles,
+                ledger_state: ledger,
+                issued_at: new Date().toISOString(),
                 storage_backend: 'github_pr_comment',
                 repository_persistent: false,
                 authority: 'authoritative',
@@ -817,16 +770,25 @@ jobs:
                 body:         scopedApprovalBody,
               });
 
-              core.info(
-                'github_pr_comment scoped approval state is PR-scoped and non-gating; ' +
-                'scoped approval writer emits authoritative future-authority artifact; ' +
-                'global manifest remains authoritative; ' +
-                'file based scoped approval storage requires garbage collection after merge'
-              );
+              const { data: newCommit } = await github.rest.git.createCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                message: `chore: refresh sentinel after governor approve ${headSha.slice(0, 7)}`,
+                tree: headCommit.tree.sha,
+                parents: [headSha],
+              });
+
+              // force: false — rejects if branch has advanced since we read headSha
+              await github.rest.git.updateRef({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                ref:   `heads/${headBranch}`,
+                sha:   newCommit.sha,
+                force: false,
+              });
 
               core.info(
-                `Approval manifest committed as ${newCommit.sha} on ${headBranch} ` +
-                `(approved_parent_sha=${headSha.slice(0, 7)})`
+                `Authoritative scoped approval artifact posted; synchronize-trigger commit ${newCommit.sha} pushed on ${headBranch}`
               );
 
             } else if (isBlock) {
