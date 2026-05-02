@@ -123,7 +123,7 @@ Group B checks PR template control fields: task ID, declared risk tier, declared
 
 Group C enforces protected-path and scope rules. CRITICAL-path files require declared risk `CRITICAL`. HIGH-path files require declared risk `HIGH` or `CRITICAL`. The declared file list must exactly equal the actual diff in both directions, with `ops/GOVERNOR_APPROVAL.json` excluded from the scope comparison.
 
-Group D enforces Governor verdict rules. For CRITICAL and HIGH risk PRs, Sentinel requires a valid approval manifest bound to `approved_parent_sha` and `approved_tree_sha`. At every risk level, a later authenticated `GOVERNOR VERDICT: BLOCK` comment overrides mergeability. Any commit after approval invalidates the manifest binding.
+Group D enforces Governor verdict rules. For CRITICAL and HIGH risk PRs, scoped approval comments are authoritative. Sentinel requires a valid authoritative scoped approval PR-comment artifact bound to the PR, risk tier, task ID, ledger state, declared files, parent SHA, and parent tree SHA. `ops/GOVERNOR_APPROVAL.json` is retained but non-authoritative. At every risk level, a later authenticated `GOVERNOR VERDICT: BLOCK` comment overrides mergeability. Any commit after approval invalidates the scoped approval binding.
 
 UNPROVEN: the live `main` branch protection or ruleset state, including whether `require pull request`, `require status checks`, and `dismiss stale approvals` style settings are currently configured. Repo files describe the expected control model, but current repository settings are external to the codebase and cannot be proven from code reading alone.
 
@@ -131,11 +131,11 @@ UNPROVEN: the live `main` branch protection or ruleset state, including whether 
 
 Sources of truth: `.github/workflows/pr-sentinel.yml` and `.github/workflows/post-merge-manifest-reset.yml`.
 
-On the APPROVE path, the Governor posts `GOVERNOR VERDICT: APPROVE FOR MERGE` as a PR comment. The `governor-manifest-commit` job in `pr-sentinel.yml` is author-gated to `certyakbar` on the `issue_comment` event and requires a PR comment containing `GOVERNOR VERDICT`. For APPROVE, it fetches the PR head commit and tree, parses task/risk/scope fields from the PR body, builds `ops/GOVERNOR_APPROVAL.json` with bindings to `approved_parent_sha` and `approved_tree_sha`, commits that manifest to the PR branch, and thereby triggers a `pull_request` `synchronize` event. Sentinel then re-evaluates the manifest on the new head SHA.
+On the APPROVE path, the Governor posts `GOVERNOR VERDICT: APPROVE FOR MERGE` as a PR comment. The `governor-manifest-commit` job in `pr-sentinel.yml` is author-gated to `certyakbar` on the `issue_comment` event and requires a PR comment containing `GOVERNOR VERDICT`. For APPROVE, it fetches the PR head commit and tree, parses task/risk/scope fields from the PR body, posts an authoritative scoped approval PR-comment artifact, and pushes a same-tree synchronize-trigger commit. Sentinel then re-evaluates the scoped approval comment on the new head SHA. approval comments no longer write ops/GOVERNOR_APPROVAL.json.
 
 On the BLOCK path, the Governor posts `GOVERNOR VERDICT: BLOCK`. The same `governor-manifest-commit` job detects BLOCK and pushes an empty commit on the PR branch instead of creating a manifest. That synchronize event causes Sentinel to run again and re-read the authenticated BLOCK comment.
 
-After merge, `.github/workflows/post-merge-manifest-reset.yml` runs on merged pull requests targeting `main`. It uses the Governor App token path again and resets `ops/GOVERNOR_APPROVAL.json` on `main` back to canonical `verdict: NONE`.
+The post-merge reset workflow is neutralized. `ops/GOVERNOR_APPROVAL.json` remains retained as repository compatibility state, and main is expected to remain canonical `verdict: NONE` after merge.
 
 UNPROVEN: `GOVERNOR_APP_ID` and `GOVERNOR_APP_PRIVATE_KEY` are referenced by both manifest-writing workflows, but their current existence and validity in repository secrets cannot be verified from code reading.
 

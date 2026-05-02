@@ -601,3 +601,25 @@ ops/GOVERNOR_APPROVAL.json is retained but non-authoritative.
 scoped approval comments are authoritative.
 
 actual witness remains not complete.
+
+## 17. T-GOV-29-ACTUAL-WITNESS
+
+scoped approval comments are authoritative for HIGH/CRITICAL approval.
+
+PR #97 is the strongest live proof of the current approval path: an authoritative scoped approval PR-comment artifact was posted, Sentinel accepted it, Sentinel reported PASS, and PR #97 merged.
+
+PR #95 and PR #96 are prior enabling evidence for the authority switch and approval-comment write neutralization.
+
+ops/GOVERNOR_APPROVAL.json is retained but non-authoritative.
+
+approval comments no longer write ops/GOVERNOR_APPROVAL.json.
+
+post-merge reset workflow is neutralized.
+
+ops/GOVERNOR_APPROVAL.json is canonical NONE on main after merge.
+
+T-GOV-29 actual witness is complete only if this PR merges and main is re-anchored afterward.
+
+BLOCK remains fail-closed: a Governor BLOCK comment newer than or equal to scoped approval keeps Sentinel failed.
+
+Local validation can verify repo-file truth. PR #97 comment history remains Governor/operator-attested GitHub evidence unless a future registry command can verify PR comments.
