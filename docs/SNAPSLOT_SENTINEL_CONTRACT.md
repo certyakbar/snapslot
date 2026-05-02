@@ -532,3 +532,22 @@ automated `governor-manifest-commit` job triggered by the APPROVE comment.
 BLOCK verdicts remain comment-based. A BLOCK is a conservative veto — a stale BLOCK
 (blocks a now-safe PR) is less harmful than a stale APPROVE (allows an unreviewed diff).
 The timeline rule in §6.2 ensures a newer APPROVE manifest supersedes an older BLOCK.
+
+---
+
+## 13. T-GOV-29 Transitional authority state (T-GOV-29-PRE-AUTHORITATIVE-SCOPED-WRITE-PATH)
+
+scoped writer now emits authority: authoritative.
+
+The Sentinel diagnostic reader now accepts both diagnostic_only and authoritative as parseable states.
+Neither scoped approval diagnostic state controls governorPassed, sentinelPassed, or allPassed.
+
+scoped artifacts remain non-gating until authority switch.
+ops/GOVERNOR_APPROVAL.json remains active authority.
+
+snapslot-governor[bot] is the writer bot identity that must remain in SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS.
+
+PR #93 authority switch remains blocked until this writer-path task is merged.
+manifest retirement remains a later task.
+T-GOV-29 actual witness remains not complete.
+diagnostic_only was the PR #93 bootstrap blocker.

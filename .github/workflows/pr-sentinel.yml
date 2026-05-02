@@ -58,6 +58,7 @@ jobs:
             const GOVERNOR_LOGIN = 'certyakbar';
             const SCOPED_APPROVAL_COMMENT_AUTHOR_LOGINS = [
               'github-actions[bot]',
+              'snapslot-governor[bot]',
             ];
 
             // ── Validation results ─────────────────────────────────────────
@@ -504,7 +505,7 @@ jobs:
             const SCOPED_APPROVAL_END = 'SNAPSLOT_SCOPED_APPROVAL_STATE_END';
             let scopedApprovalDiagnosticStatus = 'indeterminate';
             let scopedApprovalDiagnosticNote =
-              'Scoped approval diagnostic status: indeterminate; scoped approval comments are read for diagnostics only; scoped approval comments do not affect governorPassed; scoped approval comments do not affect sentinelPassed; global manifest remains authoritative';
+              'Scoped approval diagnostic status: indeterminate; scoped approval comments are read for diagnostics only; scoped approval comments do not affect governorPassed; scoped approval comments do not affect sentinelPassed; scoped approval comments do not affect allPassed; global manifest remains authoritative';
 
             function stripScopedApprovalCodeFences(artifactText) {
               return artifactText
@@ -571,7 +572,7 @@ jobs:
               if (!latestScopedApprovalComment) {
                 scopedApprovalDiagnosticStatus = 'absent';
                 scopedApprovalDiagnosticNote =
-                  'Scoped approval diagnostic status: absent; scoped approval comments use native Octokit pagination before diagnostic selection; scoped approval comment author must match the required bot identity; scoped approval comments are read for diagnostics only; scoped approval comments do not affect governorPassed; scoped approval comments do not affect sentinelPassed; global manifest remains authoritative';
+                  'Scoped approval diagnostic status: absent; scoped approval comments use native Octokit pagination before diagnostic selection; scoped approval comment author must match the required bot identity; scoped approval comments are read for diagnostics only; scoped approval comments do not affect governorPassed; scoped approval comments do not affect sentinelPassed; scoped approval comments do not affect allPassed; global manifest remains authoritative';
               } else {
                 let scopedApprovalPayload = null;
                 try {
@@ -598,8 +599,8 @@ jobs:
                   if (scopedApprovalPayload.repository_persistent !== false) {
                     diagnosticIssues.push('repository_persistent must be false');
                   }
-                  if (scopedApprovalPayload.authority !== 'diagnostic_only') {
-                    diagnosticIssues.push('authority must be diagnostic_only');
+                  if (!['diagnostic_only', 'authoritative'].includes(scopedApprovalPayload.authority)) {
+                    diagnosticIssues.push('authority must be diagnostic_only or authoritative');
                   }
                   if (scopedApprovalPayload.pr_number !== context.issue.number) {
                     diagnosticIssues.push('pr_number mismatch');
@@ -676,11 +677,12 @@ jobs:
                     `scoped approval comments are read for diagnostics only; ` +
                     `scoped approval comments do not affect governorPassed; ` +
                     `scoped approval comments do not affect sentinelPassed; ` +
+                    `scoped approval comments do not affect allPassed; ` +
                     `global manifest remains authoritative` +
                     (diagnosticIssues.length > 0 ? `; diagnostic detail: ${diagnosticIssues.join('; ')}` : '');
                 } else {
                   scopedApprovalDiagnosticNote =
-                    'Scoped approval diagnostic status: malformed; scoped approval comments use native Octokit pagination before diagnostic selection; scoped approval comment author must match the required bot identity; scoped approval payload governor_login must match GOVERNOR_LOGIN; scoped approval comments are read for diagnostics only; scoped approval comments do not affect governorPassed; scoped approval comments do not affect sentinelPassed; global manifest remains authoritative';
+                    'Scoped approval diagnostic status: malformed; scoped approval comments use native Octokit pagination before diagnostic selection; scoped approval comment author must match the required bot identity; scoped approval payload governor_login must match GOVERNOR_LOGIN; scoped approval comments are read for diagnostics only; scoped approval comments do not affect governorPassed; scoped approval comments do not affect sentinelPassed; scoped approval comments do not affect allPassed; global manifest remains authoritative';
                 }
               }
             } catch (e) {
@@ -694,6 +696,7 @@ jobs:
                 `scoped approval comments are read for diagnostics only; ` +
                 `scoped approval comments do not affect governorPassed; ` +
                 `scoped approval comments do not affect sentinelPassed; ` +
+                `scoped approval comments do not affect allPassed; ` +
                 `global manifest remains authoritative`;
             }
 
@@ -943,14 +946,15 @@ jobs:
                 force: false,
               });
 
+              // scoped approval writer emits authoritative future-authority artifact.
               // github_pr_comment scoped approval state is PR-scoped and non-authoritative.
               // The global manifest remains authoritative; scoped approval state is not yet authoritative.
               // file based scoped approval storage requires garbage collection after merge.
               const scopedApprovalState = {
                 ...manifest,
-                storage_backend:       'github_pr_comment',
+                storage_backend: 'github_pr_comment',
                 repository_persistent: false,
-                authority:             'diagnostic_only',
+                authority: 'authoritative',
               };
 
               const scopedApprovalBody = [
@@ -967,8 +971,9 @@ jobs:
               });
 
               core.info(
-                'github_pr_comment scoped approval state is PR-scoped and non-authoritative; ' +
-                'global manifest remains authoritative; scoped approval state is not yet authoritative; ' +
+                'github_pr_comment scoped approval state is PR-scoped and non-gating; ' +
+                'scoped approval writer emits authoritative future-authority artifact; ' +
+                'global manifest remains authoritative; ' +
                 'file based scoped approval storage requires garbage collection after merge'
               );
 
