@@ -589,3 +589,15 @@ post-merge reset workflow retirement remains a later task.
 manifest retirement remains not fully complete.
 
 T-GOV-29 actual witness remains not complete.
+
+## 16. T-GOV-29-PRE-POST-MERGE-RESET-NEUTRALIZATION
+
+reset workflow neutralized.
+
+The post-merge reset workflow will no longer write ops/GOVERNOR_APPROVAL.json.
+
+ops/GOVERNOR_APPROVAL.json is retained but non-authoritative.
+
+scoped approval comments are authoritative.
+
+actual witness remains not complete.
