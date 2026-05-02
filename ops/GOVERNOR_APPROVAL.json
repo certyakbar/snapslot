@@ -1,16 +1,13 @@
 {
   "schema_version": "1",
-  "verdict": "APPROVE",
-  "governor_login": "certyakbar",
-  "pr_number": 96,
-  "approved_parent_sha": "0aa9f092e49e08d9ba505d57373d17c5fb22c228",
-  "approved_tree_sha": "b33e89ba2303fc3556dc03f687f5d1e217a8de6a",
-  "risk_tier": "HIGH",
-  "task_id": "T-GOV-29-PRE-MANIFEST-WRITE-NEUTRALIZATION",
-  "declared_files": [
-    ".github/workflows/pr-sentinel.yml",
-    "docs/SNAPSLOT_SENTINEL_CONTRACT.md"
-  ],
-  "ledger_state": "NONE",
-  "issued_at": "2026-05-02T13:42:58.955Z"
+  "verdict": "NONE",
+  "governor_login": null,
+  "pr_number": null,
+  "approved_parent_sha": null,
+  "approved_tree_sha": null,
+  "risk_tier": null,
+  "task_id": null,
+  "declared_files": [],
+  "ledger_state": null,
+  "issued_at": null
 }
