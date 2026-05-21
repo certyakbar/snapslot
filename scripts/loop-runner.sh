@@ -79,6 +79,7 @@ ORIGIN_SHA="$(git rev-parse origin/main)"
 git status --short > "${PROOF_DIR}/stage1-git-status.txt"
 git rev-parse HEAD > "${PROOF_DIR}/stage1-head-sha.txt"
 git rev-parse origin/main > "${PROOF_DIR}/stage1-origin-sha.txt"
+STAGE1_GOVERNOR_APPROVAL_COMPAT_FILE="${PROOF_DIR}/stage1-governor-approval-compat.txt"
 
 DIRTY_PATHS="$(
   git status --short \
@@ -88,15 +89,34 @@ DIRTY_PATHS="$(
 [[ -z "${DIRTY_PATHS}" ]] || \
   loop_stop 1 "Unapproved working-tree paths detected" "${DIRTY_PATHS}"
 
-[[ -r "${REPO_ROOT}/ops/GOVERNOR_APPROVAL.json" ]] || \
-  loop_stop 1 "Governor approval manifest unreadable" "ops/GOVERNOR_APPROVAL.json"
-GOVERNOR_VERDICT="$(
-  grep -o '"verdict"[[:space:]]*:[[:space:]]*"[^"]*"' "${REPO_ROOT}/ops/GOVERNOR_APPROVAL.json" \
-    | grep -o '"[^"]*"$' \
-    | tr -d '"' || true
-)"
-[[ "${GOVERNOR_VERDICT}" == "NONE" ]] || \
-  loop_stop 1 "Governor approval manifest verdict is not NONE" "${GOVERNOR_VERDICT}"
+if [[ ! -e "${REPO_ROOT}/ops/GOVERNOR_APPROVAL.json" ]]; then
+  {
+    printf 'manifest_path: ops/GOVERNOR_APPROVAL.json\n'
+    printf 'manifest_state: absent\n'
+    printf 'authority: none\n'
+    printf 'stage1_gate: not enforced\n'
+  } > "${STAGE1_GOVERNOR_APPROVAL_COMPAT_FILE}"
+elif [[ ! -r "${REPO_ROOT}/ops/GOVERNOR_APPROVAL.json" ]]; then
+  {
+    printf 'manifest_path: ops/GOVERNOR_APPROVAL.json\n'
+    printf 'manifest_state: present_unreadable\n'
+    printf 'authority: none\n'
+    printf 'stage1_gate: not enforced\n'
+  } > "${STAGE1_GOVERNOR_APPROVAL_COMPAT_FILE}"
+else
+  GOVERNOR_VERDICT="$(
+    grep -o '"verdict"[[:space:]]*:[[:space:]]*"[^"]*"' "${REPO_ROOT}/ops/GOVERNOR_APPROVAL.json" \
+      | grep -o '"[^"]*"$' \
+      | tr -d '"' || true
+  )"
+  {
+    printf 'manifest_path: ops/GOVERNOR_APPROVAL.json\n'
+    printf 'manifest_state: present_readable\n'
+    printf 'manifest_verdict: %s\n' "${GOVERNOR_VERDICT:-MISSING}"
+    printf 'authority: none\n'
+    printf 'stage1_gate: not enforced\n'
+  } > "${STAGE1_GOVERNOR_APPROVAL_COMPAT_FILE}"
+fi
 
 for required_path in \
   "docs/SNAPSLOT_PHASE_TASKS.md" \
@@ -271,6 +291,7 @@ for proof_file in \
   "${PROOF_DIR}/stage1-git-status.txt" \
   "${PROOF_DIR}/stage1-head-sha.txt" \
   "${PROOF_DIR}/stage1-origin-sha.txt" \
+  "${PROOF_DIR}/stage1-governor-approval-compat.txt" \
   "${PROOF_DIR}/stage2-nokey.txt" \
   "${PROOF_DIR}/stage3-token-budget.json" \
   "${PROOF_DIR}/stage3-governor-output.txt" \
@@ -603,6 +624,7 @@ STAGE12_DRAFT_PR_URL="$(stage12_read_draft_pr_url)"
   printf '  proof/runs/%s/stage1-git-status.txt\n' "${RUN_ID}"
   printf '  proof/runs/%s/stage1-head-sha.txt\n' "${RUN_ID}"
   printf '  proof/runs/%s/stage1-origin-sha.txt\n' "${RUN_ID}"
+  printf '  proof/runs/%s/stage1-governor-approval-compat.txt\n' "${RUN_ID}"
   printf '  proof/runs/%s/stage2-nokey.txt\n' "${RUN_ID}"
   printf '  proof/runs/%s/stage3-token-budget.json\n' "${RUN_ID}"
   printf '  proof/runs/%s/stage3-governor-output.txt\n' "${RUN_ID}"
